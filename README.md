@@ -8,7 +8,15 @@ To run the script, simply enter
 
 $ python ssWFS.py
 
-into any command line interface. The script can also be run from any Python IDE such as IDLE or VS Code
+into any command line interface. The script can also be run from any Python IDE such as IDLE or VS Code. There are
+dependencies on the following Python libraries:
+
+Numpy
+SciPy
+MatplotLib
+Triangle: https://rufat.be/triangle/
+Descartes: https://pypi.org/project/descartes/
+Shapely: https://pypi.org/project/Shapely/
 
 Possible extensions of this program include modifiying the code such that it solves general second order linear 
 elliptic PDEs with Robin boundary conditions as well as including a function that can read in parameters 
