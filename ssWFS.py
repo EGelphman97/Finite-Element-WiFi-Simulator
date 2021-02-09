@@ -125,11 +125,13 @@ def calcPermitivitty(gp, lr_inner, lr_outer, br, ovr_b):
     for ii in np.arange(N):
         p = Point(gp[ii][0], gp[ii][1])
         if lr_inner_bdy.contains(p) or b_bdy.contains(p):
+            print("inside")
             eps_r[ii] = 1.0#Point is in the interior of the house
-        elif (ovr_bdy.contains(p) == True) and (lr_outer_bdy.contains(p) == False):
-            eps_r[ii] = 1.0#Point is outside the house but still inside the simulation region
-        elif p.distance(ovr_bdy) < 1e-14:
+        elif gp[ii][0] == -3.1 or gp[ii][0] == 16.1 or gp[ii][1] == -3.1 or gp[ii][1] == 10.5:
+            print("on boundary")
             eps_r[ii] = 1.0#Point is on boundary of simulation region
+        elif ovr_bdy.contains(p) == True and lr_outer_bdy.contains(p) == False:
+            eps_r[ii] = 1.0#Point is inside simulation region but outside the house
         else:#Point is on or inside a wall
             eps_r[ii] = 2.7
     return eps_r
@@ -324,6 +326,16 @@ def solveFEMSystem(z_arr, H_arr, tri_bois, grid_points, node_markers):
             x[ii] = 0.0
     return x
 
+def writeToFile(x_coords, y_coords, z_coords, filename):
+    """
+    Output the simulation results to file in (x,y,z) format
+    """
+    file1 = open(filename, 'r+')#open file
+    N = len(z_coords)
+    for ii in np.arange(N):
+        file1.write("(" + str(x_coords[ii]) + "," + str(x_coords[ii]) + "," + str(z_coords[ii]) + ")" + "\n")
+    file1.close()#close file
+
 
 def graphFEMSol(grid_points, tri_bois, coefs, linear_poly):
     """
@@ -353,10 +365,10 @@ def graphFEMSol(grid_points, tri_bois, coefs, linear_poly):
         E_phasor[ii] = coef_0*(linear_poly[ii][0][0] + linear_poly[ii][0][1]*centroid_x + linear_poly[ii][0][2]*centroid_y) + coef_1*(linear_poly[ii][1][0] + linear_poly[ii][1][1]*centroid_x + linear_poly[ii][1][2]*centroid_y) + coef_2*(linear_poly[ii][2][0] + linear_poly[ii][2][1]*centroid_x + linear_poly[ii][2][2]*centroid_y)
 
     power_density = 0.5*np.power(E_phasor,2)
-    xi = np.linspace(-10.0, 20.0, 500)
-    yi = np.linspace(-10.0, 15.0, 500)
+    xi = np.linspace(-3.1, 16.1, 750)
+    yi = np.linspace(-3.1, 10.5, 750)
     X,Y = np.meshgrid(xi,yi)
-    Z = griddata((x_vals, y_vals), power_density, (X, Y), method='linear')
+    Z = griddata((x_vals, y_vals), power_density, (X, Y), method='nearest')
     # contour the gridded data, plotting dots at the nonuniform data points.
     fig, ax = plt.subplots()
     cs = ax.contourf(X, Y, Z, cmap = 'PuBu_r')#Plot interpolated data
@@ -366,6 +378,7 @@ def graphFEMSol(grid_points, tri_bois, coefs, linear_poly):
     #Clip graph so it only plots the contours within the simulation region
     plt.title("Steady-State WiFi Power Density")
     plt.show()
+    writeToFile(x_vals, y_vals, power_density, "WiFiPowerDensity.txt")
     
 def main():
     #Note: Scale all quantities for meters and Hz
@@ -378,6 +391,7 @@ def main():
     nodes = np.array(t_FEM1['vertices'].tolist())
     node_markers = np.array(t_FEM1['vertex_markers'].tolist()).flatten()#Marker is 1 if node is on the boundary, 0 otherwise
     eps_r_arr = calcPermitivitty(nodes, lr_inner, lr_outer, br, ovr_boundary)#Calculate permitivitty at each node
+    print(eps_r_arr)
     linear_polynomials = generateLinearPolynomials(FEM_triangles, nodes, node_markers)#Calculate linear polynomials
     #Solve using FEM aout each frequency spike, then combine the two solutions using superposition - this is a linear PDE with linear BCs
     f_arr = np.array([2.4e9,5.0e9])
@@ -388,6 +402,7 @@ def main():
         z_arr, H_arr = calcTriangleIntegrals(linear_polynomials, FEM_triangles, nodes, k2_arr)#Calculate triangle integrals
         coefs = coefs + solveFEMSystem(z_arr, H_arr, FEM_triangles, nodes, node_markers)
     graphFEMSol(nodes, FEM_triangles, coefs, linear_polynomials)
+
    
 if __name__ == "__main__":
     main()
