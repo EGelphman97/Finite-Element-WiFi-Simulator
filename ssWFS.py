@@ -9,7 +9,7 @@ Kincaid and Cheney, Section 12.5 of Burden and Faires, and Chapter 9 of Reddy we
 resources consulted in the creation of this program.
 
 February 9, 2020
-v1.1.0
+v1.1.1
 """
 
 import numpy as np
@@ -85,10 +85,10 @@ def generateFEM():
     bath3 = np.array([[6.3*np.ones(5), np.linspace(4.4,3.45,num=5,endpoint=False)]]).reshape((2,-1)).T
     bath4 = np.array([[np.linspace(6.3,8.45,num=10,endpoint=False),3.45*np.ones(10)]]).reshape((2,-1)).T
     #Enter coordinates that form rectangular bpundary of overall simulation region D
-    D_lower =  np.array([[np.linspace(-10.0,20.0,num=25,endpoint=False),-10.0*np.ones(25)]]).reshape((2,-1)).T
-    D_right =  np.array([[20.0*np.ones(25), np.linspace(-10.0,15.0,num=25,endpoint=False)]]).reshape((2,-1)).T
-    D_upper =  np.array([[np.linspace(20.0,-10.0,num=25,endpoint=False),15.0*np.ones(25)]]).reshape((2,-1)).T
-    D_left =  np.array([[-10.0*np.ones(25), np.linspace(15.0,-10.0,num=25,endpoint=False)]]).reshape((2,-1)).T
+    D_lower =  np.array([[np.linspace(-3.1,16.1,num=15,endpoint=False),-3.1*np.ones(15)]]).reshape((2,-1)).T
+    D_right =  np.array([[16.1*np.ones(15), np.linspace(-3.1,10.5,num=15,endpoint=False)]]).reshape((2,-1)).T
+    D_upper =  np.array([[np.linspace(16.1,-3.1,num=15,endpoint=False),10.5*np.ones(15)]]).reshape((2,-1)).T
+    D_left =  np.array([[-3.1*np.ones(15), np.linspace(10.5,-3.1,num=15,endpoint=False)]]).reshape((2,-1)).T
     #Concatenate lists of points that we want to appear as nodes for the FEM triangulation
     lr_inner = np.concatenate((bd_1,bd_2,bd_3,bd_4,bd_5,bd_6,bd_7,bd_8,bd_9,bd_10,bd_11,bd_12,bd_13,bd_14,bd_15,bd_16,bd_17,bd_18,bd_19,bd_20))
     lr_outer = np.concatenate((o_1, o_2, o_3, o_4, o_5, o_6, o_7, o_8, o_9, o_10))
