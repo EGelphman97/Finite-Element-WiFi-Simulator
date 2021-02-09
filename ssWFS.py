@@ -3,8 +3,8 @@ Eric Gelphman
 University of California Irvine Department of Mathematics
 
 Program using various Python packages to solve the linear Helholtz equation in the phasor domain 
-with constant phasor source term for arbitrary Robin boundary conditions over 
-arbitrary piecewise-polygonal domains in R^2 using the linear finite element method. Section 9.4 of
+with inverse-square source term with homogeneous Dirichlet boundary conditions(set 3.0m from the house, 
+a crude PML boundary) over the domain of my house using the linear finite element method. Section 9.4 of
 Kincaid and Cheney, Section 12.5 of Burden and Faires, and Chapter 9 of Reddy were the three main 
 resources consulted in the creation of this program.
 
