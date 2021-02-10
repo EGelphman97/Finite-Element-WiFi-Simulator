@@ -9,7 +9,7 @@ Kincaid and Cheney, Section 12.5 of Burden and Faires, and Chapter 9 of Reddy we
 resources consulted in the creation of this program.
 
 February 9, 2020
-v1.1.1
+v1.1.3
 """
 
 import numpy as np
@@ -255,8 +255,11 @@ def calcTriangleIntegrals(linear_polynomials, tri_bois, grid_points, k2_arr):
 
                 double_integral_z,error_est_z = nquad(h_1, [bounds_v, bounds_u])#Calculate double integral of product of linear polynomials (N_j^i)(N_k^i) over triangle with verticies (0,0),(1,0),(0,1)
                 k_sq = 1.0
-                if k2_arr[tri_bois[i][0]] == 2.7 or k2_arr[tri_bois[i][1]] == 2.7 or k2_arr[tri_bois[i][2]] == 2.7:#Triangles have eps_r=2.7 if they have at least one vertex on a wall
-                    k_sq = 1.0
+                k2_V0 = k2_arr[tri_bois[i][0]]
+                k2_V1 = k2_arr[tri_bois[i][1]]
+                k2_V2 = k2_arr[tri_bois[i][2]]
+                if (k2_V0 == 2.7 and (k2_V1 == 2.7 or k2_V2 == 2.7)) or (k2_V1 == 2.7 and k2_V2 == 2.7):#Triangles have eps_r=2.7 if they have at least two vertices on or inside a wall
+                    k_sq = 2.7
                 z_arr[i][j][k] = (b_j_i*b_k_i*Area_triangle) + (c_j_i*c_k_i*Area_triangle) - (k_sq*double_integral_z)
             double_integral_H, error_est_H = nquad(h, [bounds_v, bounds_u])
             H_arr[i][j] = -1.0*double_integral_H
