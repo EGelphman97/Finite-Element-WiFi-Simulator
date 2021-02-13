@@ -2,15 +2,15 @@
 Eric Gelphman
 University of California Irvine Department of Mathematics
 
-Program using various Python packages to solve the linear Helholtz equation in the phasor domain 
+Program using various Python packages to solve the linear Helmholtz equation in the phasor domain 
 with inverse-square source term with homogeneous Dirichlet boundary conditions(set 3.0m from the house, 
 a crude PML boundary) for the electric field and with homogeneous Neumann Boundary conditions for the magnetic
 field over the domain of my house using the linear finite element method. Section 9.4 of Kincaid and Cheney, 
-Section 12.5 of Burden and Faires, and Chapter 9 of Reddy were the three main resources consulted in the construction
+Section 12.5 of Burden and Faires, and Chapter 8 of Reddy were the three main resources consulted in the construction
 of this program.
 
-February 11, 2020
-v1.1.5
+February 12, 2020
+v1.1.6
 """
 
 import numpy as np
@@ -277,14 +277,15 @@ def onBoundary(tri_boi, node_markers):
     else:
         return False
 
-def calcLineIntegrals(tri_bois, linear_polynomials, node_markers):
+def calcLineIntegrals(tri_bois, linear_polynomials, gp, node_markers):
     """
     Function to calculate the line integrals used in the system of linear equations that results from the finite element method
 
     Parameters:
-    tri_bois: N x 3 Numpy array of node indices of the three vertices of each triangle
+    tri_bois: N x 3 Numpy array of node indices of the three vertices of each triangle, N = number of triangles
     linear_polynomials: N x 3 x 3 array of the linear polynomials that are the basis functions used in finite element method
-    node_markers: N x 3 numpy array of integers that represents whether or not a point is on the boundary. node_markers[i] is 1 if
+    gp: M x 2 Numpy array of xy-coordinates of the vertices of each node, M = number of nodes
+    node_markers: M x 3 numpy array of integers that represents whether or not a point is on the boundary. node_markers[i] is 1 if
                   node i is on the boundary, and is 0 otherwise
 
     Return:
@@ -308,13 +309,14 @@ def calcLineIntegrals(tri_bois, linear_polynomials, node_markers):
                         val = val + (b_j_i*b_k_i)*np.power(x_t,2) + (b_j_i*c_k_i + c_j_i*b_k_i)*x_t*y_t + (c_j_i*c_k_i)*np.power(y_t,2)
                         return val
 
-                    #Compute line integrals along boundary using simpson's rule - overall boundary of simulation region is a rectangle
-                    bd_pts = np.array([[-3.1,16.1,-3.1,-3.1], [16.1,16.1,-3.1,10.5], [16.1,-3.1,10.5,10.5], [-3.1,-3.1,10.5,-3.1]])
+                    #Compute line integrals along boundary of each triangular element using Simpson's rule
+                    x_0,y_0,x_1,y_1,x_2,y_2 = extractVertexCoordinates(tri_bois[i], gp) 
+                    bd_pts = np.array([[x_0,x_1,y_0,y_1], [x_1,x_2,y_1,y_2], [x_2,x_0,y_2,y_0,]])
                     line_integral_J = 0.0
-                    #Evaluate line integral along rectangular boundary by adding the 4 line integrals along each side
+                    #Evaluate line integral along rectangular boundary by adding the 3 line integrals along each side of the triangular element
                     for p in bd_pts:
                         norm_gamma_prime = np.sqrt((p[1] - p[0])**2 + (p[3] - p[2])**2)
-                        t_pts = np.linspace(0.0,1.0,num=101, endpoint=True)
+                        t_pts = np.linspace(0.0,1.0,num=37, endpoint=True)
                         h_pts = norm_gamma_prime*h_2(t_pts, p[0], p[1], p[2], p[3])
                         line_integral_J = line_integral_J + simpson(h_pts, t_pts, even='first')
                         
@@ -480,12 +482,15 @@ def graphFEMSol(grid_points, tri_bois, E_coefs_24, E_coefs_5, B_coefs_24, B_coef
             B_phasor_5[ii] = B_phasor_5[ii] + B_coefs_5[tri_bois[ii][jj]]*(linear_poly[ii][jj][0] + linear_poly[ii][jj][1]*centroid_x + linear_poly[ii][jj][2]*centroid_y)
     u_0 = 12.5663706144e-7
 
-    #RMS Time averaging for electric field
+    #RMS Time averaging 
     t_24 = np.linspace(0, 2*np.pi, num=1024, endpoint=True)
     t_5 = np.linspace(0, 0.96*np.pi, num=1024, endpoint=True)
     for ii in np.arange(N):
         E_phasor_24[ii] = np.sqrt(np.sum(np.power(E_phasor_24[ii]*np.sin(t_24), 2)))
         E_phasor_5[ii] = np.sqrt(np.sum(np.power(E_phasor_5[ii]*np.sin(t_5), 2)))
+        B_phasor_24[ii] = np.sqrt(np.sum(np.power(E_phasor_24[ii]*np.sin(t_24), 2)))
+        B_phasor_5[ii] = np.sqrt(np.sum(np.power(E_phasor_5[ii]*np.sin(t_5), 2)))
+
     #Power density
     power_density = np.power(E_phasor_24 + E_phasor_5,2)/(2.0*np.sqrt(u_0/eps_arr))
     xi = np.linspace(-3.1, 16.1, 1000)
@@ -497,70 +502,17 @@ def graphFEMSol(grid_points, tri_bois, E_coefs_24, E_coefs_5, B_coefs_24, B_coef
     cs = ax.contourf(X, Y, Z, locator=ticker.LogLocator(), cmap = 'PuBu_r')#Plot interpolated power density data
     cbar = fig.colorbar(cs)
     ax.scatter(grid_points[:,0],grid_points[:,1], marker='x', linewidths=1, c='g')#Plot grid points for reference
-    #Clip graph so it only plots the contours within the simulation region
     ax.set_title("Superimposed RMS WiFi Power Density")
-    """
-    contour the gridded magnetic field data, plotting dots at the nonuniform data points.
-    fig2, ax2 = plt.subplots()
-    Z_5 = griddata((x_vals, y_vals), power_density_t_avg_5, (X, Y), method='nearest')
-    cs2 = ax2.contourf(X, Y, Z_5, cmap = 'PuBu_r')#Plot interpolated power density data
-    cbar2 = fig2.colorbar(cs2)
-    ax2.scatter(grid_points[:,0],grid_points[:,1], marker='x', linewidths=1, c='g')#Plot grid points for reference
-    ax2.set_title("RMS Power Density at 5.0 GHz")
-    """
-    plt.show()
 
-"""
-def graphFEMSol(grid_points, tri_bois, E_coefs, B_coefs, eps_arr, linear_poly):
-    Function to generate a 3D plot of the solution obtained using the finite element method
-
-    Parameters:
-    grid_points: M x 2 representing xy-coordinates of grid points/nodes
-    tri_bois: N x 3 numpy array of node indices of the three vertices of each triangle 
-    E_coefs: Numpy array of length M of node coefficients that solve the FEM equations for the electric field 
-    B_coefs: Numpy array of length M of node coefficients that solve the FEM equations for the magnetic field
-    eps_arr: Numpy array of length n that holds the values of the electric permitivitty coefficient(e_r*e_0) at each node
-    linear_poly: N x 3 x 3 Numpy array of two-variable linear polynomial coefficients
-    print("Graphing started")
-    #Generate and plot numerical values of solution at the centroid of each triangle
-    N = grid_points.shape[0]
-    x_vals = np.zeros(N)
-    y_vals = np.zeros(N)
-    E_phasor = np.zeros(N)
-    B_phasor = np.zeros(N)
-    for ii in np.arange(N):
-        x_0,y_0,x_1,y_1,x_2,y_2 = extractVertexCoordinates(tri_bois[ii], grid_points)
-        #Calculate centroid
-        centroid_x = (x_0 + x_1 + x_2)/3.0
-        x_vals[ii] = centroid_x
-        centroid_y = (y_0 + y_1 + y_2)/3.0
-        y_vals[ii] = centroid_y
-        for jj in np.arange(3):
-            E_phasor[ii] = E_phasor[ii] + E_coefs[tri_bois[ii][jj]]*(linear_poly[ii][jj][0] + linear_poly[ii][jj][1]*centroid_x + linear_poly[ii][jj][2]*centroid_y)
-            B_phasor[ii] = B_phasor[ii] + B_coefs[tri_bois[ii][jj]]*(linear_poly[ii][jj][0] + linear_poly[ii][jj][1]*centroid_x + linear_poly[ii][jj][2]*centroid_y)
-    u_0 = 12.5663706144e-7
-    power_density = np.power(E_phasor,2)/(2.0*np.sqrt(u_0/eps_arr))
-    xi = np.linspace(-3.1, 16.1, 1000)
-    yi = np.linspace(-3.1, 10.5, 1000)
-    X,Y = np.meshgrid(xi,yi)
-    Z = griddata((x_vals, y_vals), power_density, (X, Y), method='nearest')
-    # contour the gridded power density data, plotting dots at the nonuniform data points.
-    fig, ax = plt.subplots()
-    cs = ax.contourf(X, Y, Z, cmap = 'PuBu_r')#Plot interpolated power density data
-    cbar = fig.colorbar(cs)
-    ax.scatter(grid_points[:,0],grid_points[:,1], marker='x', linewidths=1, c='g')#Plot grid points for reference
-    #Clip graph so it only plots the contours within the simulation region
-    ax.set_title("Steady-State WiFi Power Density")
-    # contour the gridded magnetic field data, plotting dots at the nonuniform data points.
+    #Magnetic Field
+    B_phasor = B_phasor_24 + B_phasor_5
     fig2, ax2 = plt.subplots()
     Z_B = griddata((x_vals, y_vals), B_phasor, (X, Y), method='nearest')
     cs2 = ax2.contourf(X, Y, Z_B, cmap = 'PuBu_r')#Plot interpolated power density data
     cbar2 = fig2.colorbar(cs2)
     ax2.scatter(grid_points[:,0],grid_points[:,1], marker='x', linewidths=1, c='g')#Plot grid points for reference
-    #Clip graph so it only plots the contours within the simulation region
-    ax2.set_title("Steady-State Magnetic Field")
+    ax2.set_title("Magnetic Field")
     plt.show()
-"""
     
 def main():
     #Note: Scale all quantities for meters and Hz
@@ -575,20 +527,12 @@ def main():
     eps_r_arr = calcPermitivitty(nodes, lr_inner, lr_outer, br, ovr_boundary)#Calculate permitivitty at each node
     linear_polynomials = generateLinearPolynomials(FEM_triangles, nodes, node_markers)#Calculate linear polynomials
     #Solve using FEM aout each frequency spike, then combine the two solutions using superposition - this is a linear PDE with linear BCs
-    """
-    f_arr = np.array([2.4e9,5.0e9])
-    E_coefs_2.4 = np.zeros(nodes.shape[0])#Coefficients for electric field, 2.4GHz
-    B_coefs_2.4 = np.zeros(nodes.shape[0])#Coefficients for the magnetic field, 2.4GHz
-    E_coefs_5.0 = np.zeros(nodes.shape[0])#Coefficients for electric field, 5.0GHz
-    B_coefs_5.0 = np.zeros(nodes.shape[0])#Coefficients for the magnetic field, 5.0GHz
-    """
-
     #Solve at 2.4GHz
     omega_24 = 2*PI*2.4e9
     k2_arr_24 = (omega_24**2)*u_0*e_0*eps_r_arr
     eps_arr = e_0*eps_r_arr
     z_arr_24, H_arr_24 = calcTriangleIntegrals(linear_polynomials, FEM_triangles, nodes, k2_arr_24)#Calculate triangle integrals
-    J_arr = calcLineIntegrals(FEM_triangles, linear_polynomials, node_markers)#Calculate line integrals, not dependent on frequency
+    J_arr = calcLineIntegrals(FEM_triangles, linear_polynomials, nodes, node_markers)#Calculate line integrals, not dependent on frequency
     E_coefs_24 = solveFEMSystemElectric(z_arr_24, H_arr_24, FEM_triangles, nodes, node_markers)#Solve for electric field coefficients
     B_coefs_24 = solveFEMSystemMagnetic(z_arr_24, H_arr_24, J_arr, FEM_triangles, nodes, node_markers)#Solve for magnetic field coefficients
 
@@ -600,7 +544,7 @@ def main():
     E_coefs_5 = solveFEMSystemElectric(z_arr_5, H_arr_5, FEM_triangles, nodes, node_markers)#Solve for electric field coefficients
     B_coefs_5 = solveFEMSystemMagnetic(z_arr_5, H_arr_5, J_arr, FEM_triangles, nodes, node_markers)#Solve for magnetic field coefficients
 
-    
+    #Plor Results of Simulation
     graphFEMSol(nodes, FEM_triangles, E_coefs_24, E_coefs_5, B_coefs_24, B_coefs_5, eps_arr, linear_polynomials)#Graph the solution
 
 if __name__ == "__main__":
