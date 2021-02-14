@@ -9,8 +9,8 @@ field over the domain of my house using the linear finite element method. Sectio
 Section 12.5 of Burden and Faires, and Chapter 8 of Reddy were the three main resources consulted in the construction
 of this program.
 
-February 12, 2020
-v1.1.6
+February 14, 2020
+v1.1.7
 """
 
 import numpy as np
@@ -35,7 +35,9 @@ def triangulationFEM(gp):
     """
     tri_dict = dict(vertices=gp)
     tri_FEM = triangle.triangulate(tri_dict, 'qD')#Initial triangulation 
-    tri_FEM_R = triangle.triangulate(tri_FEM, 'ra0.3')#Refinement
+    tri_FEM_R = triangle.triangulate(tri_FEM, 'ra0.2')#Refinement
+    del tri_dict
+    del tri_FEM#Triangulation takes up a lot of memory, so delete the unrefined triangulation object
     return tri_FEM_R
 
 def generateFEM():
@@ -199,7 +201,7 @@ def extractTriangleCoefs(linear_poly):
     c_j_i = linear_poly[2]
     return a_j_i,b_j_i,c_j_i
 
-def calcTriangleIntegrals(linear_polynomials, tri_bois, grid_points, k2_arr):
+def calcTriangleIntegrals(linear_polynomials, tri_bois, grid_points, eps_r_arr, omega):
     """
     Function to calculate the integrals over each triangle to generate the matrix in the finite element method
 
@@ -207,7 +209,8 @@ def calcTriangleIntegrals(linear_polynomials, tri_bois, grid_points, k2_arr):
     linear_polynomials: N x 3 x 3 Numpy array of linear polynomials at each node of the finite element grid
     tri_bois: N x 6 Numpy array representing the xy-coordinates of the verticies of each triangular element
     grid_points: N x 2 Numpy array of grid points
-    k2_arr: Numpy array of length N that holds the value of the parameter k^2 in the Helmholtz equation at each grid point
+    eps_r_arr: Numpy array of length N that holds the value of the relative electrical permitivitty coefficient at each node 
+    omega: Angular frequency
 
     Return:
     z_arr: N x 3 x 3 Numpy array of double integrals
@@ -254,12 +257,15 @@ def calcTriangleIntegrals(linear_polynomials, tri_bois, grid_points, k2_arr):
                     return [0.0, 1.0 - u]
 
                 double_integral_z,error_est_z = nquad(h_1, [bounds_v, bounds_u])#Calculate double integral of product of linear polynomials (N_j^i)(N_k^i) over triangle with verticies (0,0),(1,0),(0,1)
-                k_sq = 1.0
-                k2_V0 = k2_arr[tri_bois[i][0]]
-                k2_V1 = k2_arr[tri_bois[i][1]]
-                k2_V2 = k2_arr[tri_bois[i][2]]
-                if (k2_V0 == 2.7 and (k2_V1 == 2.7 or k2_V2 == 2.7)) or (k2_V1 == 2.7 and k2_V2 == 2.7):#Triangles have eps_r=2.7 if they have at least two vertices on or inside a wall
-                    k_sq = 2.7
+                eps_r = 1.0
+                eps_r_V0 = eps_r_arr[tri_bois[i][0]]
+                eps_r_V1 = eps_r_arr[tri_bois[i][1]]
+                eps_r_V2 = eps_r_arr[tri_bois[i][2]]
+                if (eps_r_V0 == 2.7 and (eps_r_V1 == 2.7 or eps_r_V2 == 2.7)) or (eps_r_V1 == 2.7 and eps_r_V2 == 2.7):#Triangles have eps_r=2.7 if they have at least two vertices on or inside a wall
+                    eps_r = 2.7
+                e_0 = 8.8541878176e-12
+                u_0 = 12.5663706144e-7
+                k_sq = (omega**2)*eps_r*e_0*u_0
                 z_arr[i][j][k] = (b_j_i*b_k_i*Area_triangle) + (c_j_i*c_k_i*Area_triangle) - (k_sq*double_integral_z)
             double_integral_H, error_est_H = nquad(h, [bounds_v, bounds_u])
             H_arr[i][j] = -1.0*double_integral_H
@@ -386,7 +392,12 @@ def solveFEMSystemElectric(z_arr, H_arr, tri_bois, grid_points, node_markers):
 
     #Solve the sparse linear system 
     sp_A = csr_matrix((np.array(V_A), (np.array(i_A, dtype=int), np.array(j_A, dtype=int))), shape=(L,L))
+    del i_A#Free memory
+    del j_A
+    del V_A
+    print("Start Iterative Solution")
     x_sol_interior, int_info = gmres(sp_A, b, tol=1e-7)
+    print("End Iterative Solution")
     x_E = np.zeros(M)#Build overall solution vector
     for ii in np.arange(M):
         if node_markers[ii] == 0:#Interior point
@@ -441,7 +452,12 @@ def solveFEMSystemMagnetic(z_arr, H_arr, J_arr, tri_bois, grid_points, node_mark
             b[l] = b[l] + H_arr[i][k]
 
     #Solve the sparse linear system 
-    sp_A = sp_A = csr_matrix((np.array(V_A), (np.array(i_A, dtype=int), np.array(j_A, dtype=int))), shape=(M,M))
+    print("Start Iterative Solution")
+    sp_A = csr_matrix((np.array(V_A), (np.array(i_A, dtype=int), np.array(j_A, dtype=int))), shape=(M,M))
+    del i_A#Free memory
+    del j_A
+    del V_A
+    print("End Interative Solution")
     x_B, B_info = gmres(sp_A, b, tol=1e-7)
     return x_B
 
@@ -493,6 +509,8 @@ def graphFEMSol(grid_points, tri_bois, E_coefs_24, E_coefs_5, B_coefs_24, B_coef
 
     #Power density
     power_density = np.power(E_phasor_24 + E_phasor_5,2)/(2.0*np.sqrt(u_0/eps_arr))
+    del E_phasor_24
+    del E_phasor_5
     xi = np.linspace(-3.1, 16.1, 1000)
     yi = np.linspace(-3.1, 10.5, 1000)
     X,Y = np.meshgrid(xi,yi)
@@ -506,6 +524,8 @@ def graphFEMSol(grid_points, tri_bois, E_coefs_24, E_coefs_5, B_coefs_24, B_coef
 
     #Magnetic Field
     B_phasor = B_phasor_24 + B_phasor_5
+    del B_phasor_24
+    del B_phasor_5
     fig2, ax2 = plt.subplots()
     Z_B = griddata((x_vals, y_vals), B_phasor, (X, Y), method='nearest')
     cs2 = ax2.contourf(X, Y, Z_B, cmap = 'PuBu_r')#Plot interpolated power density data
@@ -517,34 +537,31 @@ def graphFEMSol(grid_points, tri_bois, E_coefs_24, E_coefs_5, B_coefs_24, B_coef
 def main():
     #Note: Scale all quantities for meters and Hz
     #Parameters not dependent on omega or alpha
-    u_0 = 12.5663706144e-7
-    e_0 = 8.8541878176e-12
     PI = np.pi
     t_FEM1, lr_inner, lr_outer, br, ovr_boundary = generateFEM()
     FEM_triangles = np.array(t_FEM1['triangles'].tolist())
     nodes = np.array(t_FEM1['vertices'].tolist())
+    print(len(nodes))
     node_markers = np.array(t_FEM1['vertex_markers'].tolist()).flatten()#Marker is 1 if node is on the boundary, 0 otherwise
     eps_r_arr = calcPermitivitty(nodes, lr_inner, lr_outer, br, ovr_boundary)#Calculate permitivitty at each node
     linear_polynomials = generateLinearPolynomials(FEM_triangles, nodes, node_markers)#Calculate linear polynomials
     #Solve using FEM aout each frequency spike, then combine the two solutions using superposition - this is a linear PDE with linear BCs
     #Solve at 2.4GHz
     omega_24 = 2*PI*2.4e9
-    k2_arr_24 = (omega_24**2)*u_0*e_0*eps_r_arr
-    eps_arr = e_0*eps_r_arr
-    z_arr_24, H_arr_24 = calcTriangleIntegrals(linear_polynomials, FEM_triangles, nodes, k2_arr_24)#Calculate triangle integrals
+    z_arr_24, H_arr_24 = calcTriangleIntegrals(linear_polynomials, FEM_triangles, nodes, eps_r_arr, omega_24)#Calculate triangle integrals
     J_arr = calcLineIntegrals(FEM_triangles, linear_polynomials, nodes, node_markers)#Calculate line integrals, not dependent on frequency
     E_coefs_24 = solveFEMSystemElectric(z_arr_24, H_arr_24, FEM_triangles, nodes, node_markers)#Solve for electric field coefficients
     B_coefs_24 = solveFEMSystemMagnetic(z_arr_24, H_arr_24, J_arr, FEM_triangles, nodes, node_markers)#Solve for magnetic field coefficients
 
     #Solve at 5.0GHz
     omega_5 = 2*PI*5.0e9
-    k2_arr_5 = (omega_5**2)*u_0*e_0*eps_r_arr
-    eps_arr = e_0*eps_r_arr
-    z_arr_5, H_arr_5 = calcTriangleIntegrals(linear_polynomials, FEM_triangles, nodes, k2_arr_5)#Calculate triangle integrals
+    z_arr_5, H_arr_5 = calcTriangleIntegrals(linear_polynomials, FEM_triangles, nodes, eps_r_arr, omega_5)#Calculate triangle integrals
     E_coefs_5 = solveFEMSystemElectric(z_arr_5, H_arr_5, FEM_triangles, nodes, node_markers)#Solve for electric field coefficients
     B_coefs_5 = solveFEMSystemMagnetic(z_arr_5, H_arr_5, J_arr, FEM_triangles, nodes, node_markers)#Solve for magnetic field coefficients
 
     #Plor Results of Simulation
+    e_0 = 8.8541878176e-12
+    eps_arr = e_0*eps_r_arr
     graphFEMSol(nodes, FEM_triangles, E_coefs_24, E_coefs_5, B_coefs_24, B_coefs_5, eps_arr, linear_polynomials)#Graph the solution
 
 if __name__ == "__main__":
