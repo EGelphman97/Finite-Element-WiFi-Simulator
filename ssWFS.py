@@ -10,7 +10,7 @@ Section 12.5 of Burden and Faires, and Chapter 8 of Reddy were the three main re
 of this program.
 
 February 14, 2020
-v1.1.7
+v1.2.0
 """
 
 import numpy as np
@@ -223,11 +223,13 @@ def calcTriangleIntegrals(linear_polynomials, tri_bois, grid_points, eps_r_arr, 
         x_0,y_0,x_1,y_1,x_2,y_2 = extractVertexCoordinates(tri_bois[i], grid_points)
         Area_triangle = 0.5*np.linalg.det(np.array([[x_0,y_0,1],[x_1,y_1,1],[x_2,y_2,1]]))
         for j in np.arange(3):
+            a_j_i,b_j_i,c_j_i = extractTriangleCoefs(linear_polynomials[i][j])
+
+            #Change coordinates so double integral is over the triangle with verticies (0,0),(1,0),(0,1)
+            J_abs = np.abs((x_1 - x_0)*(y_2 - y_0) - (x_2 - x_0)*(y_1 - y_0))#Absolute value of determinant of Jacobian matrix
+
             for k in np.arange(j+1):
-                a_j_i,b_j_i,c_j_i = extractTriangleCoefs(linear_polynomials[i][j])
                 a_k_i,b_k_i,c_k_i = extractTriangleCoefs(linear_polynomials[i][k])
-                #Change coordinates so double integral is over the triangle with verticies (0,0),(1,0),(0,1)
-                J_abs = np.abs((x_1 - x_0)*(y_2 - y_0) - (x_2 - x_0)*(y_1 - y_0))#Absolute value of determinant of Jacobian matrix
 
                 #Evaluate linear polynomial times the source term f at a point (u,v)
                 def h(u,v):
@@ -239,7 +241,7 @@ def calcTriangleIntegrals(linear_polynomials, tri_bois, grid_points, eps_r_arr, 
                         val = (2 - denom)*(a_j_i + (b_j_i*phi) + (c_j_i*psi))#Ensure the continuity
                     else:
                         val = (a_j_i + (b_j_i*phi) + (c_j_i*psi))/denom
-                    return val
+                    return J_abs*val#Multiply by Jacobian
 
                 #Evaluate composition of change of coordinates map and product of two linear polynomials at point (u,v)
                 def h_1(u,v):
@@ -247,7 +249,7 @@ def calcTriangleIntegrals(linear_polynomials, tri_bois, grid_points, eps_r_arr, 
                     psi = (y_1 - y_0)*u + (y_2 - y_0)*v + y_0
                     val = (a_j_i*a_k_i) + (a_j_i*b_k_i + a_k_i*b_j_i)*phi + (a_j_i*c_k_i + a_k_i*c_j_i)*psi
                     val = val + (b_j_i*b_k_i)*np.power(phi,2) + (b_j_i*c_k_i + c_j_i*b_k_i)*phi*psi + (c_j_i*c_k_i)*np.power(psi,2)
-                    return val
+                    return val*J_abs#Multiply by Jacobian
 
                 #Bounds for double integration
                 def bounds_u():
