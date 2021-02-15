@@ -10,7 +10,7 @@ Section 12.5 of Burden and Faires, and Chapter 8 of Reddy were the three main re
 of this program.
 
 February 14, 2020
-v1.2.0
+v1.2.1
 """
 
 import numpy as np
@@ -228,20 +228,20 @@ def calcTriangleIntegrals(linear_polynomials, tri_bois, grid_points, eps_r_arr, 
             #Change coordinates so double integral is over the triangle with verticies (0,0),(1,0),(0,1)
             J_abs = np.abs((x_1 - x_0)*(y_2 - y_0) - (x_2 - x_0)*(y_1 - y_0))#Absolute value of determinant of Jacobian matrix
 
+            #Evaluate linear polynomial times the source term f at a point (u,v)
+            def f(u,v):
+                phi = (x_1 - x_0)*u + (x_2 - x_0)*v + x_0
+                psi = (y_1 - y_0)*u + (y_2 - y_0)*v + y_0
+                #Control magnitude of source term - point sources will cause the integration subroutine to fail
+                denom = ((phi - 0.5)**2 + (psi - 1.0)**2)
+                if denom < 1:
+                    val = (2 - denom)*(a_j_i + (b_j_i*phi) + (c_j_i*psi))#Ensure the continuity
+                else:
+                    val = (a_j_i + (b_j_i*phi) + (c_j_i*psi))/denom
+                return J_abs*val#Multiply by Jacobian
+
             for k in np.arange(j+1):
                 a_k_i,b_k_i,c_k_i = extractTriangleCoefs(linear_polynomials[i][k])
-
-                #Evaluate linear polynomial times the source term f at a point (u,v)
-                def h(u,v):
-                    phi = (x_1 - x_0)*u + (x_2 - x_0)*v + x_0
-                    psi = (y_1 - y_0)*u + (y_2 - y_0)*v + y_0
-                    #Control magnitude of source term - point sources will cause the integration subroutine to fail
-                    denom = ((phi - 0.5)**2 + (psi - 1.0)**2)
-                    if denom < 1:
-                        val = (2 - denom)*(a_j_i + (b_j_i*phi) + (c_j_i*psi))#Ensure the continuity
-                    else:
-                        val = (a_j_i + (b_j_i*phi) + (c_j_i*psi))/denom
-                    return J_abs*val#Multiply by Jacobian
 
                 #Evaluate composition of change of coordinates map and product of two linear polynomials at point (u,v)
                 def h_1(u,v):
@@ -269,7 +269,7 @@ def calcTriangleIntegrals(linear_polynomials, tri_bois, grid_points, eps_r_arr, 
                 u_0 = 12.5663706144e-7
                 k_sq = (omega**2)*eps_r*e_0*u_0
                 z_arr[i][j][k] = (b_j_i*b_k_i*Area_triangle) + (c_j_i*c_k_i*Area_triangle) - (k_sq*double_integral_z)
-            double_integral_H, error_est_H = nquad(h, [bounds_v, bounds_u])
+            double_integral_H, error_est_H = nquad(f, [bounds_v, bounds_u])
             H_arr[i][j] = -1.0*double_integral_H
     return z_arr, H_arr
 
