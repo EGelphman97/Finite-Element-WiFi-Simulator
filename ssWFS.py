@@ -9,8 +9,8 @@ field over the domain of my house using the linear finite element method. Sectio
 Section 12.5 of Burden and Faires, and Chapter 8 of Reddy were the three main resources consulted in the construction
 of this program.
 
-February 14, 2020
-v1.2.1
+February 16, 2020
+v1.3.0
 """
 
 import numpy as np
@@ -18,7 +18,7 @@ import triangle
 from scipy.integrate import nquad, simpson
 from scipy.interpolate import griddata
 from scipy.sparse import csr_matrix
-from scipy.sparse.linalg import gmres
+from scipy.sparse.linalg import spsolve, gmres
 import matplotlib.pyplot as plt
 from matplotlib import ticker
 from shapely.geometry import Point, Polygon
@@ -33,7 +33,9 @@ def triangulationFEM(gp):
     Return:
     tri_FEM_R: Delaunay FEM triangulation after one refinement
     """
-    tri_dict = dict(vertices=gp)
+    grid_dict = {hash((p[0], p[1])): p for p in gp }
+    grid_points = np.array(list(grid_dict.values()))
+    tri_dict = dict(vertices=grid_points)
     tri_FEM = triangle.triangulate(tri_dict, 'qD')#Initial triangulation 
     tri_FEM_R = triangle.triangulate(tri_FEM, 'ra0.2')#Refinement
     del tri_dict
@@ -222,11 +224,13 @@ def calcTriangleIntegrals(linear_polynomials, tri_bois, grid_points, eps_r_arr, 
     for i in np.arange(N):
         x_0,y_0,x_1,y_1,x_2,y_2 = extractVertexCoordinates(tri_bois[i], grid_points)
         Area_triangle = 0.5*np.linalg.det(np.array([[x_0,y_0,1],[x_1,y_1,1],[x_2,y_2,1]]))
+
+        #Change coordinates so double integral is over the triangle with verticies (0,0),(1,0),(0,1)
+        J_abs = np.abs((x_1 - x_0)*(y_2 - y_0) - (x_2 - x_0)*(y_1 - y_0))#Absolute value of determinant of Jacobian matrix
+
+
         for j in np.arange(3):
             a_j_i,b_j_i,c_j_i = extractTriangleCoefs(linear_polynomials[i][j])
-
-            #Change coordinates so double integral is over the triangle with verticies (0,0),(1,0),(0,1)
-            J_abs = np.abs((x_1 - x_0)*(y_2 - y_0) - (x_2 - x_0)*(y_1 - y_0))#Absolute value of determinant of Jacobian matrix
 
             #Evaluate linear polynomial times the source term f at a point (u,v)
             def f(u,v):
@@ -297,7 +301,7 @@ def calcLineIntegrals(tri_bois, linear_polynomials, gp, node_markers):
                   node i is on the boundary, and is 0 otherwise
 
     Return:
-    J_ints: N x 3 x 3 array of values of line integrals
+    J_ints: N x 3 x 3 array of values of line integrals along boundary of triangular elements
     """
     N = linear_polynomials.shape[0]
     J_ints = np.zeros((N,3,3))
@@ -309,36 +313,41 @@ def calcLineIntegrals(tri_bois, linear_polynomials, gp, node_markers):
                     a_j_i,b_j_i,c_j_i = extractTriangleCoefs(linear_polynomials[i][j])
                     a_k_i,b_k_i,c_k_i = extractTriangleCoefs(linear_polynomials[i][k])
 
-                    #Evaluate composition product of two linear polynomials at a point (x,y) with the parametrization of the rectangle that is the boundary of the simulation region
-                    def h_2(t, x_0, x_1, y_0, y_1):
-                        x_t = x_0*(1.0 - t) + x_1*t
-                        y_t = y_0*(1.0 - t) + y_1*t
-                        val = (a_j_i*a_k_i) + (a_j_i*b_k_i + a_k_i*b_j_i)*x_t + (a_j_i*c_k_i + a_k_i*c_j_i)*y_t
-                        val = val + (b_j_i*b_k_i)*np.power(x_t,2) + (b_j_i*c_k_i + c_j_i*b_k_i)*x_t*y_t + (c_j_i*c_k_i)*np.power(y_t,2)
-                        return val
-
                     #Compute line integrals along boundary of each triangular element using Simpson's rule
                     x_0,y_0,x_1,y_1,x_2,y_2 = extractVertexCoordinates(tri_bois[i], gp) 
                     bd_pts = np.array([[x_0,x_1,y_0,y_1], [x_1,x_2,y_1,y_2], [x_2,x_0,y_2,y_0,]])
                     line_integral_J = 0.0
                     #Evaluate line integral along rectangular boundary by adding the 3 line integrals along each side of the triangular element
                     for p in bd_pts:
+                        x_0 = p[0]
+                        x_1 = p[1]
+                        x_2 = p[2]
+                        x_3 = p[3]
                         norm_gamma_prime = np.sqrt((p[1] - p[0])**2 + (p[3] - p[2])**2)
                         t_pts = np.linspace(0.0,1.0,num=37, endpoint=True)
-                        h_pts = norm_gamma_prime*h_2(t_pts, p[0], p[1], p[2], p[3])
+
+                        #Evaluate composition product of two linear polynomials at a point (x,y) with the parametrization of the triangular element
+                        x_t = x_0*(1.0 - t_pts) + x_1*t_pts
+                        y_t = y_0*(1.0 - t_pts) + y_1*t_pts
+                        h2 = (a_j_i*a_k_i) + (a_j_i*b_k_i + a_k_i*b_j_i)*x_t + (a_j_i*c_k_i + a_k_i*c_j_i)*y_t
+                        h2 = h2 + (b_j_i*b_k_i)*np.power(x_t,2) + (b_j_i*c_k_i + c_j_i*b_k_i)*x_t*y_t + (c_j_i*c_k_i)*np.power(y_t,2)
+                        
+                        #Evaluate line integral
+                        h_pts = norm_gamma_prime*h2
                         line_integral_J = line_integral_J + simpson(h_pts, t_pts, even='first')
                         
                     J_ints[i][j][k] = line_integral_J
     return J_ints
 
-def solveFEMSystemElectric(z_arr, H_arr, tri_bois, grid_points, node_markers):
+def solveFEMSystemElectric(z_arr, H_arr, J_arr, tri_bois, grid_points, node_markers):
     """
     Function to solve the system of equation that results from  the linear FEM method for
     the electric field in phasor form
 
     Parameters:
-    z_arr: N x 3 x 3 Numpy array of values of inner product integrals over each triangular element
-    H_arr: N x 3 Numpy array of values of inner product integrals involving inhomogeneous term
+    z_arr: N x 3 x 3 Numpy array of values of double integrals over each triangular element
+    H_arr: N x 3 Numpy array of values of double integrals involving inhomogeneous term over each triangle
+    J_arr: N x 3 x 3 Numpy array of values of line lintegrals along the boundary of each triangle
     tri_bois: N x 6 array of xy-coordinates of verticies of each triangle
     grid_points: Array of arrays of length 2 represrnting xy-coordinates of verticies
     node_markers: Array of arrays indicating whether or not a node lies on the boundary
@@ -349,61 +358,54 @@ def solveFEMSystemElectric(z_arr, H_arr, tri_bois, grid_points, node_markers):
     """
     N = tri_bois.shape[0]
     M = grid_points.shape[0]
-    int_points_idx = []#Original grid indices of the interior points
+    int_points_dict = {}#Original grid indices of the interior points
+    L = 0
     for ii in np.arange(M):
         if node_markers[ii] == 0:
-            int_points_idx.append(ii)
-    int_points = np.array(int_points_idx, dtype=int)
-    L = len(int_points)#Linear system is for the coefficients corresponding to the interior points
+            int_points_dict.update({ii:L})#ii, the global index, is the key, and L, the interior index, is its value
+            L = L + 1#Increment L
     #Store sparse matrix in (i,j,V) format
     i_A = []
     j_A = []
     V_A = []
     b = np.zeros(L)
-    int_triangle_idx = []#Indices, in FEM_triangles, of the triangles with interior points only as verticies
-    for ii in np.arange(N):
-        if not (node_markers[tri_bois[ii][0]] == 1 or node_markers[tri_bois[ii][1]] == 1 or node_markers[tri_bois[ii][2]] == 1):
-            int_triangle_idx.append(ii)
 
-    int_triangles = np.array(int_triangle_idx, dtype=int)
     #Assemble integrals over interior triangular elements into linear system
-    for i in np.arange(len(int_triangles)):
-        original_tri_idx = int_triangles[i]#Original index of triangle in FEM_triangles
-        original_node_idx = np.array([tri_bois[original_tri_idx][0],tri_bois[original_tri_idx][1],tri_bois[original_tri_idx][2]])#Original node indices
-        for k in np.arange(3):
-            l = original_node_idx[k]
-            if k > 0:
-                for j in np.arange(k):
-                    t = original_node_idx[j]
-                    if l in int_points:#Node l is an interior point
-                        l_int = int(np.where(int_points == l)[0])#Interior node index
-                        if t in int_points:#Node t is an interior point
-                            t_int = int(np.where(int_points == t)[0])#Interior node index
-                            i_A.append(l_int)
-                            j_A.append(t_int)
-                            V_A.append(z_arr[original_tri_idx][k][j])
-                            i_A.append(t_int)#Matrix is symmetric
-                            j_A.append(l_int)
-                            V_A.append(z_arr[original_tri_idx][k][j])
-            if l in int_points:
-                l_int = int(np.where(int_points == l)[0])
-                i_A.append(l_int)
-                j_A.append(l_int)
-                V_A.append(z_arr[original_tri_idx][k][k])
-                b[l_int] = b[l_int] + H_arr[i][k]
-
+    for i in np.arange(N):
+        if (tri_bois[i][0] in int_points_dict) or (tri_bois[i][1] in int_points_dict) or (tri_bois[i][2] in int_points_dict):#If at least one vertex is in the interior
+            original_node_idx = np.array([tri_bois[i][0],tri_bois[i][1],tri_bois[i][2]])#Original node indices
+            for k in np.arange(3):
+                l = original_node_idx[k]
+                if l in int_points_dict:
+                    l_int = int_points_dict.get(l)
+                    if k > 0:
+                        for j in np.arange(k):
+                            t = original_node_idx[j]
+                            if t in int_points_dict:
+                                t_int = int_points_dict.get(t)#Interior node index
+                                i_A.append(l_int)
+                                j_A.append(t_int)
+                                V_A.append(z_arr[i][k][j] + J_arr[i][k][j])
+                                i_A.append(t_int)#Matrix is symmetric
+                                j_A.append(l_int)
+                                V_A.append(z_arr[i][k][j] + J_arr[i][k][j])
+                    i_A.append(l_int)
+                    j_A.append(l_int)
+                    V_A.append(z_arr[i][k][k] + J_arr[i][k][k])
+                    b[l_int] = b[l_int] + H_arr[i][k]
     #Solve the sparse linear system 
     sp_A = csr_matrix((np.array(V_A), (np.array(i_A, dtype=int), np.array(j_A, dtype=int))), shape=(L,L))
     del i_A#Free memory
     del j_A
     del V_A
-    print("Start Iterative Solution")
-    x_sol_interior, int_info = gmres(sp_A, b, tol=1e-7)
-    print("End Iterative Solution")
+    m_d = sp_A.diagonal()
+    print("Solving Electric System")
+    x_sol_interior = spsolve(sp_A, b)
+    print("End solve electric system")
     x_E = np.zeros(M)#Build overall solution vector
     for ii in np.arange(M):
-        if node_markers[ii] == 0:#Interior point
-            int_idx = int(np.where(int_points == ii)[0])#Interior index
+        if ii in int_points_dict:#Interior point
+            int_idx = int_points_dict.get(ii)#Interior index
             x_E[ii] = x_sol_interior[int_idx]
         else:#Boundary point
             x_E[ii] = 0.0
@@ -454,13 +456,11 @@ def solveFEMSystemMagnetic(z_arr, H_arr, J_arr, tri_bois, grid_points, node_mark
             b[l] = b[l] + H_arr[i][k]
 
     #Solve the sparse linear system 
-    print("Start Iterative Solution")
     sp_A = csr_matrix((np.array(V_A), (np.array(i_A, dtype=int), np.array(j_A, dtype=int))), shape=(M,M))
     del i_A#Free memory
     del j_A
     del V_A
-    print("End Interative Solution")
-    x_B, B_info = gmres(sp_A, b, tol=1e-7)
+    x_B = spsolve(sp_A, b)
     return x_B
 
 def graphFEMSol(grid_points, tri_bois, E_coefs_24, E_coefs_5, B_coefs_24, B_coefs_5, eps_arr, linear_poly):
@@ -511,6 +511,7 @@ def graphFEMSol(grid_points, tri_bois, E_coefs_24, E_coefs_5, B_coefs_24, B_coef
 
     #Power density
     power_density = np.power(E_phasor_24 + E_phasor_5,2)/(2.0*np.sqrt(u_0/eps_arr))
+    print(power_density)
     del E_phasor_24
     del E_phasor_5
     xi = np.linspace(-3.1, 16.1, 1000)
@@ -530,7 +531,7 @@ def graphFEMSol(grid_points, tri_bois, E_coefs_24, E_coefs_5, B_coefs_24, B_coef
     del B_phasor_5
     fig2, ax2 = plt.subplots()
     Z_B = griddata((x_vals, y_vals), B_phasor, (X, Y), method='nearest')
-    cs2 = ax2.contourf(X, Y, Z_B, cmap = 'PuBu_r')#Plot interpolated power density data
+    cs2 = ax2.contourf(X, Y, Z_B, locator=ticker.LogLocator(), cmap = 'PuBu_r')#Plot interpolated power density data
     cbar2 = fig2.colorbar(cs2)
     ax2.scatter(grid_points[:,0],grid_points[:,1], marker='x', linewidths=1, c='g')#Plot grid points for reference
     ax2.set_title("Magnetic Field")
@@ -543,22 +544,22 @@ def main():
     t_FEM1, lr_inner, lr_outer, br, ovr_boundary = generateFEM()
     FEM_triangles = np.array(t_FEM1['triangles'].tolist())
     nodes = np.array(t_FEM1['vertices'].tolist())
-    print(len(nodes))
     node_markers = np.array(t_FEM1['vertex_markers'].tolist()).flatten()#Marker is 1 if node is on the boundary, 0 otherwise
     eps_r_arr = calcPermitivitty(nodes, lr_inner, lr_outer, br, ovr_boundary)#Calculate permitivitty at each node
     linear_polynomials = generateLinearPolynomials(FEM_triangles, nodes, node_markers)#Calculate linear polynomials
+
     #Solve using FEM aout each frequency spike, then combine the two solutions using superposition - this is a linear PDE with linear BCs
     #Solve at 2.4GHz
     omega_24 = 2*PI*2.4e9
     z_arr_24, H_arr_24 = calcTriangleIntegrals(linear_polynomials, FEM_triangles, nodes, eps_r_arr, omega_24)#Calculate triangle integrals
     J_arr = calcLineIntegrals(FEM_triangles, linear_polynomials, nodes, node_markers)#Calculate line integrals, not dependent on frequency
-    E_coefs_24 = solveFEMSystemElectric(z_arr_24, H_arr_24, FEM_triangles, nodes, node_markers)#Solve for electric field coefficients
+    E_coefs_24 = solveFEMSystemElectric(z_arr_24, H_arr_24, J_arr, FEM_triangles, nodes, node_markers)#Solve for electric field coefficients
     B_coefs_24 = solveFEMSystemMagnetic(z_arr_24, H_arr_24, J_arr, FEM_triangles, nodes, node_markers)#Solve for magnetic field coefficients
 
     #Solve at 5.0GHz
     omega_5 = 2*PI*5.0e9
     z_arr_5, H_arr_5 = calcTriangleIntegrals(linear_polynomials, FEM_triangles, nodes, eps_r_arr, omega_5)#Calculate triangle integrals
-    E_coefs_5 = solveFEMSystemElectric(z_arr_5, H_arr_5, FEM_triangles, nodes, node_markers)#Solve for electric field coefficients
+    E_coefs_5 = solveFEMSystemElectric(z_arr_5, H_arr_5, J_arr, FEM_triangles, nodes, node_markers)#Solve for electric field coefficients
     B_coefs_5 = solveFEMSystemMagnetic(z_arr_5, H_arr_5, J_arr, FEM_triangles, nodes, node_markers)#Solve for magnetic field coefficients
 
     #Plor Results of Simulation
