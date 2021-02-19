@@ -9,8 +9,8 @@ field over the domain of my house using the linear finite element method. Sectio
 Section 12.5 of Burden and Faires, and Chapter 8 of Reddy were the three main resources consulted in the construction
 of this program.
 
-February 16, 2020
-v1.3.0
+February 18, 2020
+v1.4.0
 """
 
 import numpy as np
@@ -22,6 +22,105 @@ from scipy.sparse.linalg import spsolve, gmres
 import matplotlib.pyplot as plt
 from matplotlib import ticker
 from shapely.geometry import Point, Polygon
+
+def evaluateZInt(x_coords, y_coords, tri_coefs_j, tri_coefs_k):
+    """
+    Function to evaluate integral over a triangular elements that does not involve the source term f
+    using Gaussian quadrature
+
+    Parameters:
+    x_coords: Length 3 numpy array pf x-coordinates [x_0, x_1, x_2] of verticies of triangle
+    y_coords: Length 3 numpy array of y-coordinates [y_0, y_1, y_2] of verticies of triangle
+    tri_coefs_j: Length 3 numpy array of triangle coefficents [a_j, b_j, c_j]
+    tri_coefs_k: Length 3 numpy array of triangle coefficents [a_k, b_k, c_k]
+    """
+    x_0 = x_coords[0]
+    x_1 = x_coords[1]
+    x_2 = x_coords[2]
+    y_0 = y_coords[0]
+    y_1 = y_coords[1]
+    y_2 = y_coords[2]
+    a_j_i = tri_coefs_j[0]
+    b_j_i = tri_coefs_j[1]
+    c_j_i = tri_coefs_j[2]
+    a_k_i = tri_coefs_k[0]
+    b_k_i = tri_coefs_k[1]
+    c_k_i = tri_coefs_k[2]
+    gauss_c = np.array([0.3626837833783620,0.3626837833783620,0.3137066458778873,0.3137066458778873,0.2223810344533745,0.2223810344533745,0.1012285362903763,0.1012285362903763])
+    gauss_r = np.array([-0.1834346424956498,0.1834346424956498,-0.5255324099163290,0.5255324099163290,-0.7966664774136267,0.7966664774136267,-0.9602898564975363,0.9602898564975363])
+    #Change coordinates so double integral is over the triangle with verticies (0,0),(1,0),(0,1)
+    J_abs = np.abs((x_1 - x_0)*(y_2 - y_0) - (x_2 - x_0)*(y_1 - y_0))#Absolute value of determinant of Jacobian matrix
+    #Apply two-variable Gaussian quadrature, this involves another change of variables-multiply Jacobians
+    h = 0.5
+    J2 = 0.0
+    for m in np.arange(len(gauss_r)):
+        u = h*gauss_r[m] + h
+        d = 1.0 - u
+        k = d/2.0
+        J2X = 0.0
+        for n in np.arange(len(gauss_r)):
+            v = k*gauss_r[n] + k
+            phi = (x_1 - x_0)*u + (x_2 - x_0)*v + x_0
+            psi = (y_1 - y_0)*u + (y_2 - y_0)*v + y_0
+            val = (a_j_i*a_k_i) + (a_j_i*b_k_i + a_k_i*b_j_i)*phi + (a_j_i*c_k_i + a_k_i*c_j_i)*psi
+            val = val + (b_j_i*b_k_i)*np.power(phi,2) + (b_j_i*c_k_i + c_j_i*b_k_i)*phi*psi + (c_j_i*c_k_i)*np.power(psi,2)
+            val = J_abs*val#Jacobian is a constant, as the derivatives are of linear functions
+            J2X = J2X + gauss_c[n]*val
+            J2 = J2 + gauss_c[m]*h*J2X
+    z_int = h*J2#Approximation of double integral
+    return z_int
+
+def evaluateHInt(x_coords, y_coords, tri_coefs_j):
+    """
+    Function to evaluate integral over a triangular elements that does involve the source term f
+    using Gaussian quadrature
+
+    Parameters:
+    x_coords: Length 3 numpy array pf x-coordinates [x_0, x_1, x_2] of verticies of triangle
+    y_coords: Length 3 numpy array of y-coordinates [y_0, y_1, y_2] of verticies of triangle
+    tri_coefs_j: Length 3 numpy array of triangle coefficents [a_j, b_j, c_j]
+
+    Return:
+    Approximation to integral involving f over triangle
+    """
+    x_0 = x_coords[0]
+    x_1 = x_coords[1]
+    x_2 = x_coords[2]
+    y_0 = y_coords[0]
+    y_1 = y_coords[1]
+    y_2 = y_coords[2]
+    a_j_i = tri_coefs_j[0]
+    b_j_i = tri_coefs_j[1]
+    c_j_i = tri_coefs_j[2]
+    gauss_c = np.array([0.3626837833783620,0.3626837833783620,0.3137066458778873,0.3137066458778873,0.2223810344533745,0.2223810344533745,0.1012285362903763,0.1012285362903763])
+    gauss_r = np.array([-0.1834346424956498,0.1834346424956498,-0.5255324099163290,0.5255324099163290,-0.7966664774136267,0.7966664774136267,-0.9602898564975363,0.9602898564975363])
+    #Change coordinates so double integral is over the triangle with verticies (0,0),(1,0),(0,1)
+    J_abs = np.abs((x_1 - x_0)*(y_2 - y_0) - (x_2 - x_0)*(y_1 - y_0))#Absolute value of determinant of Jacobian matrix
+    #Apply two-variable Gaussian quadrature, this involves another change of variables-multiply Jacobians
+    h = 0.5
+    J2 = 0.0
+    for m in np.arange(len(gauss_r)):
+        u = h*gauss_r[m] + h
+        d = 1.0 - u
+        k = d/2.0
+        J2X = 0.0
+        for n in np.arange(len(gauss_r)):
+            v = k*gauss_r[n] + k
+            phi = (x_1 - x_0)*u + (x_2 - x_0)*v + x_0
+            psi = (y_1 - y_0)*u + (y_2 - y_0)*v + y_0
+            #Control magnitude of source term - point sources will cause the integration subroutine to fail
+            denom = ((phi - 0.5)**2 + (psi - 1.0)**2)
+            A = 0
+            if denom < 1:
+                A = (3.0 - 2.0*denom)*(a_j_i + (b_j_i*phi) + (c_j_i*psi))#Ensure the continuity
+            else:
+                A = (a_j_i + (b_j_i*phi) + (c_j_i*psi))/denom
+            f = J_abs*A#Jacobian is a constant, as the derivatives are of linear functions
+            J2X = J2X + gauss_c[n]*f
+            J2 = J2 + gauss_c[m]*h*J2X
+    H_int = h*J2#Approximation of double integral
+    return H_int
+
 
 def triangulationFEM(gp):
     """
@@ -223,46 +322,15 @@ def calcTriangleIntegrals(linear_polynomials, tri_bois, grid_points, eps_r_arr, 
     H_arr = np.zeros((N,3))
     for i in np.arange(N):
         x_0,y_0,x_1,y_1,x_2,y_2 = extractVertexCoordinates(tri_bois[i], grid_points)
+        x_coords = np.array([x_0, x_1, x_2])
+        y_coords = np.array([y_0, y_1, y_2])
         Area_triangle = 0.5*np.linalg.det(np.array([[x_0,y_0,1],[x_1,y_1,1],[x_2,y_2,1]]))
-
-        #Change coordinates so double integral is over the triangle with verticies (0,0),(1,0),(0,1)
-        J_abs = np.abs((x_1 - x_0)*(y_2 - y_0) - (x_2 - x_0)*(y_1 - y_0))#Absolute value of determinant of Jacobian matrix
-
-
         for j in np.arange(3):
             a_j_i,b_j_i,c_j_i = extractTriangleCoefs(linear_polynomials[i][j])
-
-            #Evaluate linear polynomial times the source term f at a point (u,v)
-            def f(u,v):
-                phi = (x_1 - x_0)*u + (x_2 - x_0)*v + x_0
-                psi = (y_1 - y_0)*u + (y_2 - y_0)*v + y_0
-                #Control magnitude of source term - point sources will cause the integration subroutine to fail
-                denom = ((phi - 0.5)**2 + (psi - 1.0)**2)
-                if denom < 1:
-                    val = (2 - denom)*(a_j_i + (b_j_i*phi) + (c_j_i*psi))#Ensure the continuity
-                else:
-                    val = (a_j_i + (b_j_i*phi) + (c_j_i*psi))/denom
-                return J_abs*val#Multiply by Jacobian
-
+            t_j_coefs = np.array([a_j_i, b_j_i, c_j_i])
             for k in np.arange(j+1):
                 a_k_i,b_k_i,c_k_i = extractTriangleCoefs(linear_polynomials[i][k])
-
-                #Evaluate composition of change of coordinates map and product of two linear polynomials at point (u,v)
-                def h_1(u,v):
-                    phi = (x_1 - x_0)*u + (x_2 - x_0)*v + x_0
-                    psi = (y_1 - y_0)*u + (y_2 - y_0)*v + y_0
-                    val = (a_j_i*a_k_i) + (a_j_i*b_k_i + a_k_i*b_j_i)*phi + (a_j_i*c_k_i + a_k_i*c_j_i)*psi
-                    val = val + (b_j_i*b_k_i)*np.power(phi,2) + (b_j_i*c_k_i + c_j_i*b_k_i)*phi*psi + (c_j_i*c_k_i)*np.power(psi,2)
-                    return val*J_abs#Multiply by Jacobian
-
-                #Bounds for double integration
-                def bounds_u():
-                    return [0.0,1.0]
-
-                def bounds_v(u):
-                    return [0.0, 1.0 - u]
-
-                double_integral_z,error_est_z = nquad(h_1, [bounds_v, bounds_u])#Calculate double integral of product of linear polynomials (N_j^i)(N_k^i) over triangle with verticies (0,0),(1,0),(0,1)
+                t_k_coefs = np.array([a_k_i, b_k_i, c_k_i])
                 eps_r = 1.0
                 eps_r_V0 = eps_r_arr[tri_bois[i][0]]
                 eps_r_V1 = eps_r_arr[tri_bois[i][1]]
@@ -272,8 +340,9 @@ def calcTriangleIntegrals(linear_polynomials, tri_bois, grid_points, eps_r_arr, 
                 e_0 = 8.8541878176e-12
                 u_0 = 12.5663706144e-7
                 k_sq = (omega**2)*eps_r*e_0*u_0
-                z_arr[i][j][k] = (b_j_i*b_k_i*Area_triangle) + (c_j_i*c_k_i*Area_triangle) - (k_sq*double_integral_z)
-            double_integral_H, error_est_H = nquad(f, [bounds_v, bounds_u])
+                double_int_z = evaluateZInt(x_coords, y_coords, t_j_coefs, t_k_coefs)
+                z_arr[i][j][k] = (b_j_i*b_k_i*Area_triangle) + (c_j_i*c_k_i*Area_triangle) - (k_sq*double_int_z)
+            double_integral_H = evaluateHInt(x_coords, y_coords, t_j_coefs)
             H_arr[i][j] = -1.0*double_integral_H
     return z_arr, H_arr
 
@@ -309,8 +378,8 @@ def calcLineIntegrals(tri_bois, linear_polynomials, gp, node_markers):
         #Check if triangle has at least two points on boundary. If this is true, then the triangle has at least one side along the boundary
         if onBoundary(tri_bois[i], node_markers):
             for j in np.arange(3):
+                a_j_i,b_j_i,c_j_i = extractTriangleCoefs(linear_polynomials[i][j])
                 for k in np.arange(j+1):
-                    a_j_i,b_j_i,c_j_i = extractTriangleCoefs(linear_polynomials[i][j])
                     a_k_i,b_k_i,c_k_i = extractTriangleCoefs(linear_polynomials[i][k])
 
                     #Compute line integrals along boundary of each triangular element using Simpson's rule
@@ -500,15 +569,6 @@ def graphFEMSol(grid_points, tri_bois, E_coefs_24, E_coefs_5, B_coefs_24, B_coef
             B_phasor_5[ii] = B_phasor_5[ii] + B_coefs_5[tri_bois[ii][jj]]*(linear_poly[ii][jj][0] + linear_poly[ii][jj][1]*centroid_x + linear_poly[ii][jj][2]*centroid_y)
     u_0 = 12.5663706144e-7
 
-    #RMS Time averaging 
-    t_24 = np.linspace(0, 2*np.pi, num=1024, endpoint=True)
-    t_5 = np.linspace(0, 0.96*np.pi, num=1024, endpoint=True)
-    for ii in np.arange(N):
-        E_phasor_24[ii] = np.sqrt(np.sum(np.power(E_phasor_24[ii]*np.sin(t_24), 2)))
-        E_phasor_5[ii] = np.sqrt(np.sum(np.power(E_phasor_5[ii]*np.sin(t_5), 2)))
-        B_phasor_24[ii] = np.sqrt(np.sum(np.power(E_phasor_24[ii]*np.sin(t_24), 2)))
-        B_phasor_5[ii] = np.sqrt(np.sum(np.power(E_phasor_5[ii]*np.sin(t_5), 2)))
-
     #Power density
     power_density = np.power(E_phasor_24 + E_phasor_5,2)/(2.0*np.sqrt(u_0/eps_arr))
     print(power_density)
@@ -517,24 +577,24 @@ def graphFEMSol(grid_points, tri_bois, E_coefs_24, E_coefs_5, B_coefs_24, B_coef
     xi = np.linspace(-3.1, 16.1, 1000)
     yi = np.linspace(-3.1, 10.5, 1000)
     X,Y = np.meshgrid(xi,yi)
-    Z = griddata((x_vals, y_vals), power_density, (X, Y), method='nearest')
+    Z = griddata((x_vals, y_vals), power_density, (X, Y), method='cubic')
     # contour the gridded power density data, plotting dots at the nonuniform data points.
     fig, ax = plt.subplots()
     cs = ax.contourf(X, Y, Z, locator=ticker.LogLocator(), cmap = 'PuBu_r')#Plot interpolated power density data
     cbar = fig.colorbar(cs)
     ax.scatter(grid_points[:,0],grid_points[:,1], marker='x', linewidths=1, c='g')#Plot grid points for reference
-    ax.set_title("Superimposed RMS WiFi Power Density")
+    ax.set_title("Superimposed WiFi Power Density (Gray is High, Blue is Low)")
 
     #Magnetic Field
-    B_phasor = B_phasor_24 + B_phasor_5
+    B_phasor = np.sqrt(np.power(B_phasor_24 + B_phasor_5, 2))
     del B_phasor_24
     del B_phasor_5
     fig2, ax2 = plt.subplots()
-    Z_B = griddata((x_vals, y_vals), B_phasor, (X, Y), method='nearest')
+    Z_B = griddata((x_vals, y_vals), B_phasor, (X, Y), method='cubic')
     cs2 = ax2.contourf(X, Y, Z_B, locator=ticker.LogLocator(), cmap = 'PuBu_r')#Plot interpolated power density data
     cbar2 = fig2.colorbar(cs2)
     ax2.scatter(grid_points[:,0],grid_points[:,1], marker='x', linewidths=1, c='g')#Plot grid points for reference
-    ax2.set_title("Magnetic Field")
+    ax2.set_title("Magnetic Field Magnitude (Gray is High, Blue is Low)")
     plt.show()
     
 def main():
