@@ -8,12 +8,11 @@ of my house using the linear finite element method. Section 9.4 of Kincaid and C
 and Faires, and Chapter 8 of Reddy were the three main resources consulted in the constructionof this program.
 
 February 19, 2020
-v1.5.0
+v1.5.1
 """
 
 import numpy as np
 import triangle
-from scipy.integrate import nquad, simpson
 from scipy.interpolate import griddata
 from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import spsolve
@@ -339,18 +338,6 @@ def calcTriangleIntegrals(linear_polynomials, tri_bois, grid_points, eps_r_arr, 
                 double_integral_H = evaluateHInt(x_coords, y_coords, t_j_coefs)
             H_arr[i][j] = -1.0*double_integral_H
     return z_arr, H_arr
-
-def onBoundary(tri_boi, node_markers):
-    """
-    Function to determine if a triangle has at least one edge along the boundary
-    """
-    V_0 = tri_boi[0]
-    V_1 = tri_boi[1]
-    V_2 = tri_boi[2]
-    if (node_markers[V_0] == 1 and (node_markers[V_1] == 1 or node_markers[V_2] == 1)) or (node_markers[V_1] == 1 and node_markers[V_2] == 1):
-        return True
-    else:
-        return False
 
 def solveFEMSystemElectric(z_arr, H_arr, tri_bois, grid_points, node_markers):
     """
