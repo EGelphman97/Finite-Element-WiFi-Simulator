@@ -10,7 +10,7 @@ Section 12.5 of Burden and Faires, and Chapter 8 of Reddy were the three main re
 of this program.
 
 February 18, 2020
-v1.4.0
+v1.4.1
 """
 
 import numpy as np
@@ -108,14 +108,7 @@ def evaluateHInt(x_coords, y_coords, tri_coefs_j):
             v = k*gauss_r[n] + k
             phi = (x_1 - x_0)*u + (x_2 - x_0)*v + x_0
             psi = (y_1 - y_0)*u + (y_2 - y_0)*v + y_0
-            #Control magnitude of source term - point sources will cause the integration subroutine to fail
-            denom = ((phi - 0.5)**2 + (psi - 1.0)**2)
-            A = 0
-            if denom < 1:
-                A = (3.0 - 2.0*denom)*(a_j_i + (b_j_i*phi) + (c_j_i*psi))#Ensure the continuity
-            else:
-                A = (a_j_i + (b_j_i*phi) + (c_j_i*psi))/denom
-            f = J_abs*A#Jacobian is a constant, as the derivatives are of linear functions
+            f = J_abs*(1.7/8.8541878176e-9)#Jacobian is a constant, as the derivatives are of linear functions, source is a point charge
             J2X = J2X + gauss_c[n]*f
             J2 = J2 + gauss_c[m]*h*J2X
     H_int = h*J2#Approximation of double integral
@@ -199,7 +192,7 @@ def generateFEM():
     lr_outer = np.concatenate((o_1, o_2, o_3, o_4, o_5, o_6, o_7, o_8, o_9, o_10))
     br = np.concatenate((bath1, bath2, bath3, bath4))
     ovr_bdy = np.concatenate((D_lower, D_right, D_upper, D_left))
-    enforceable_gp = np.concatenate((lr_inner, lr_outer, br, ovr_bdy))
+    enforceable_gp = np.concatenate((lr_inner, lr_outer, br, np.array([[0.5, 1.0]]), ovr_bdy))#Include source term as a grid point
     ax = plt.axes()
     t_FEM = triangulationFEM(enforceable_gp)
     triangle.plot(ax, **t_FEM)
@@ -313,6 +306,7 @@ def calcTriangleIntegrals(linear_polynomials, tri_bois, grid_points, eps_r_arr, 
     eps_r_arr: Numpy array of length N that holds the value of the relative electrical permitivitty coefficient at each node 
     omega: Angular frequency
 
+
     Return:
     z_arr: N x 3 x 3 Numpy array of double integrals
     H_arr: N x 3 Numpy array of double integrals involving inhomogeneous term
@@ -342,7 +336,9 @@ def calcTriangleIntegrals(linear_polynomials, tri_bois, grid_points, eps_r_arr, 
                 k_sq = (omega**2)*eps_r*e_0*u_0
                 double_int_z = evaluateZInt(x_coords, y_coords, t_j_coefs, t_k_coefs)
                 z_arr[i][j][k] = (b_j_i*b_k_i*Area_triangle) + (c_j_i*c_k_i*Area_triangle) - (k_sq*double_int_z)
-            double_integral_H = evaluateHInt(x_coords, y_coords, t_j_coefs)
+            double_integral_H = 0
+            if (np.sqrt((x_0 - 0.5)**2 + (y_0 - 1.0)**2) < 1e-12) or (np.sqrt((x_1 - 0.5)**2 + (y_1 - 1.0)**2) < 1e-12) or (np.sqrt((x_2 - 0.5)**2 + (y_2 - 1.0)**2) < 1e-12):#Model source term as point charge
+                double_integral_H = evaluateHInt(x_coords, y_coords, t_j_coefs)
             H_arr[i][j] = -1.0*double_integral_H
     return z_arr, H_arr
 
@@ -570,14 +566,14 @@ def graphFEMSol(grid_points, tri_bois, E_coefs_24, E_coefs_5, B_coefs_24, B_coef
     u_0 = 12.5663706144e-7
 
     #Power density
-    power_density = np.power(E_phasor_24 + E_phasor_5,2)/(2.0*np.sqrt(u_0/eps_arr))
+    power_density = np.power(E_phasor_24 + E_phasor_5,2)/(2.0*np.sqrt(u_0/eps_arr)) 
     print(power_density)
     del E_phasor_24
     del E_phasor_5
     xi = np.linspace(-3.1, 16.1, 1000)
     yi = np.linspace(-3.1, 10.5, 1000)
     X,Y = np.meshgrid(xi,yi)
-    Z = griddata((x_vals, y_vals), power_density, (X, Y), method='cubic')
+    Z = griddata((x_vals, y_vals), power_density, (X, Y), method='linear')
     # contour the gridded power density data, plotting dots at the nonuniform data points.
     fig, ax = plt.subplots()
     cs = ax.contourf(X, Y, Z, locator=ticker.LogLocator(), cmap = 'PuBu_r')#Plot interpolated power density data
@@ -586,11 +582,11 @@ def graphFEMSol(grid_points, tri_bois, E_coefs_24, E_coefs_5, B_coefs_24, B_coef
     ax.set_title("Superimposed WiFi Power Density (Gray is High, Blue is Low)")
 
     #Magnetic Field
-    B_phasor = np.sqrt(np.power(B_phasor_24 + B_phasor_5, 2))
+    B_phasor = np.sqrt(np.power(B_phasor_24 + B_phasor_5, 2)) 
     del B_phasor_24
     del B_phasor_5
     fig2, ax2 = plt.subplots()
-    Z_B = griddata((x_vals, y_vals), B_phasor, (X, Y), method='cubic')
+    Z_B = griddata((x_vals, y_vals), B_phasor, (X, Y), method='linear')
     cs2 = ax2.contourf(X, Y, Z_B, locator=ticker.LogLocator(), cmap = 'PuBu_r')#Plot interpolated power density data
     cbar2 = fig2.colorbar(cs2)
     ax2.scatter(grid_points[:,0],grid_points[:,1], marker='x', linewidths=1, c='g')#Plot grid points for reference
