@@ -1,7 +1,7 @@
 # Finite-Element-WiFi-Simulator
 ssWFS is a Python program that calculates the steady-state power density of the wifi signal over the downstairs of 
-my house. The program solves the inhomogeneous Helmholtz equation with inverse-square source and with (rough) PML boundary
-conditions at the boundary using the finite element method and then generates a filled contour plot of the power density. 
+my house. The program solves the inhomogeneous Helmholtz equation with point source and with natural boundary
+conditions using the finite element method. ssWFS then generates a filled contour plot of the power density. 
 The script is configured for automatic documentation generation using Python's built-in command line tools. 
 
 To run the script, simply enter 
@@ -18,8 +18,8 @@ Triangle: https://rufat.be/triangle/
 Shapely: https://pypi.org/project/Shapely/
 
 TDGS.py is a Python program that calculates the relative instantaneous power density of the WiFi signal over the downstairs
-of my house. The program solves the inhomogeneous wave equation with inverse-square time dependent source with harmonics at 
-2.4 and 5.0 GHz with a crude PML boundary condition. TDGS is a 2D finite element version of the 3D finite difference time domain
+of my house. The program solves the inhomogeneous wave equation with point time dependent source with harmonics at 
+2.4 and 5.0 GHz with natural boundary conditions. TDGS is a 2D finite element version of the 3D finite difference time domain
 (FDTD) method commonly used in computational electromagnetics. To run this program, simply enter into the command line
 
 $ python TDGS.py
