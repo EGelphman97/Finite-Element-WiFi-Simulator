@@ -2,13 +2,13 @@
 Eric Gelphman
 University of California Irvine Department of Mathematics
 
-Program using various Python packages to solve the linear Helmholtz equation in the phasor domain 
-with inverse-square source term with natural boundary conditions(set 3.0m from the house, over the domain 
-of my house using the linear finite element method. Section 9.4 of Kincaid and Cheney, Section 12.5 of Burden 
-and Faires, and Chapter 8 of Reddy were the three main resources consulted in the constructionof this program.
+Program using various Python packages to calculate the steady-state power density of WiFi in my house. This is accomplished by solving 
+the two dimensional vector linear Helmholtz equation in the phasor domain with circular wave source term with natural boundary conditions 
+using the linear finite element method. Section 9.4 of Kincaid and Cheney, Section 12.5 of Burden and Faires, and Chapter 8 of Reddy were 
+the three main resources consulted in the construction of this program.
 
-February 19, 2020
-v1.5.1
+February 20, 2020
+v1.6.0
 """
 
 import numpy as np
@@ -67,7 +67,37 @@ def evaluateZInt(x_coords, y_coords, tri_coefs_j, tri_coefs_k):
     z_int = h*J2#Approximation of double integral
     return z_int
 
-def evaluateHInt(x_coords, y_coords, tri_coefs_j):
+def evalf(x, y, wv_k, source_component):
+    """
+    Function to evaluate the specified component('x' or 'y') of the vector-valued source function f(x,y)
+    with wave number wv_k 
+    """
+    R = np.sqrt((x-1.0)**2 + (y-1.0)**2)
+    phi = 0.0
+    if x != 0.0:
+        phi = np.arctan(y/x)
+    elif x == 0.0:
+        if y == 0.0:
+            phi = 0.0
+        else:
+            phi = np.pi/2.0
+    A = 1.0/np.sqrt(2.0)
+    f_R = 0.0
+    f_theta = 0.0
+    if np.sqrt(x**2 + y**2) < 1.0:
+        f_R = A*(5.0 - (5.0/3.0)*R - R**2 - (4.0/3.0)*(R**3))*np.exp(-1j*wv_k*R)
+        f_theta = 0.5*A*(5.0 - (5.0/3.0)*R - R**2 - (4.0/3.0)*(R**3))*np.exp(-1j*wv_k*R)
+    else:
+        f_R = A*np.exp(-1j*wv_k*R)*(1.0/((wv_k*R)**2) - (1j/((wv_k*R)**3)))
+        f_theta = A*np.exp(-1j*wv_k*R)*((1j/(wv_k*R)) + 1.0/((wv_k*R)**2) - (1j/((wv_k*R)**3)))
+    F = 0.0
+    if source_component == 'x':
+        F = np.cos(phi)*f_R + R*np.cos(phi)*f_theta
+    elif source_component == 'y':
+        F = np.sin(phi)*f_R + R*np.sin(phi)*f_theta
+    return F*1.0e-12
+    
+def evaluateHInt(x_coords, y_coords, coefs_j, source_component, wv_k):
     """
     Function to evaluate integral over a triangular elements that does involve the source term f
     using Gaussian quadrature
@@ -75,8 +105,11 @@ def evaluateHInt(x_coords, y_coords, tri_coefs_j):
     Parameters:
     x_coords: Length 3 numpy array pf x-coordinates [x_0, x_1, x_2] of verticies of triangle
     y_coords: Length 3 numpy array of y-coordinates [y_0, y_1, y_2] of verticies of triangle
-    tri_coefs_j: Length 3 numpy array of triangle coefficents [a_j, b_j, c_j]
-
+    coefs_j: Length 3 numpy array of linear polynomial coefficents [a_j_i, b_j_i, c_j_i]
+    source_component: 'x' or 'y' to indicate which coomponent of the source function, which is vector valued, 
+                       to integrate
+    wv_k: wave number
+                        
     Return:
     Approximation to integral involving f over triangle
     """
@@ -86,14 +119,16 @@ def evaluateHInt(x_coords, y_coords, tri_coefs_j):
     y_0 = y_coords[0]
     y_1 = y_coords[1]
     y_2 = y_coords[2]
-    a_j_i = tri_coefs_j[0]
-    b_j_i = tri_coefs_j[1]
-    c_j_i = tri_coefs_j[2]
+    a_j_i = coefs_j[0]
+    b_j_i = coefs_j[1]
+    c_j_i = coefs_j[2]
     gauss_c = np.array([0.3626837833783620,0.3626837833783620,0.3137066458778873,0.3137066458778873,0.2223810344533745,0.2223810344533745,0.1012285362903763,0.1012285362903763])
     gauss_r = np.array([-0.1834346424956498,0.1834346424956498,-0.5255324099163290,0.5255324099163290,-0.7966664774136267,0.7966664774136267,-0.9602898564975363,0.9602898564975363])
+    L = len(gauss_r)
     #Change coordinates so double integral is over the triangle with verticies (0,0),(1,0),(0,1)
-    J_abs = np.abs((x_1 - x_0)*(y_2 - y_0) - (x_2 - x_0)*(y_1 - y_0))#Absolute value of determinant of Jacobian matrix
-    #Apply two-variable Gaussian quadrature, this involves another change of variables-multiply Jacobians
+    J_abs = np.abs((x_1 - x_0)*(y_2 - y_0) - (x_2 - x_0)*(y_1 - y_0))#Absolute value of determinant of Jacobian matrix for this coordinate change
+            
+    #Apply two-variable Gaussian quadrature, this involves another change of variables-multiply Jacobians, outer one(computed above) comes last
     h = 0.5
     J2 = 0.0
     for m in np.arange(len(gauss_r)):
@@ -105,12 +140,11 @@ def evaluateHInt(x_coords, y_coords, tri_coefs_j):
             v = k*gauss_r[n] + k
             phi = (x_1 - x_0)*u + (x_2 - x_0)*v + x_0
             psi = (y_1 - y_0)*u + (y_2 - y_0)*v + y_0
-            f = J_abs*(1.7/8.8541878176e-9)#Jacobian is a constant, as the derivatives are of linear functions, source is a point charge
+            f = J_abs*evalf(phi, psi, wv_k, source_component)*(a_j_i + b_j_i*phi + c_j_i*psi)
             J2X = J2X + gauss_c[n]*f
             J2 = J2 + gauss_c[m]*h*J2X
     H_int = h*J2#Approximation of double integral
     return H_int
-
 
 def triangulationFEM(gp):
     """
@@ -120,16 +154,22 @@ def triangulationFEM(gp):
     gp: L x 2 array of xy-coordinates of grid points to be enforced in the triangulation
 
     Return:
-    tri_FEM_R: Delaunay FEM triangulation after one refinement
+    tri_FEM_R: Delaunay FEM triangulation after 4 refinements
     """
     grid_dict = {hash((p[0], p[1])): p for p in gp }
     grid_points = np.array(list(grid_dict.values()))
     tri_dict = dict(vertices=grid_points)
-    tri_FEM = triangle.triangulate(tri_dict, 'qD')#Initial triangulation 
-    tri_FEM_R = triangle.triangulate(tri_FEM, 'ra0.15')#Refinement
+    tri_FEM = triangle.triangulate(tri_dict, 'qD')#Initial triangulation
+    tri_FEM_2 = triangle.triangulate(tri_FEM, 'ra0.2')#Refinement 1
+    tri_FEM_3 = triangle.triangulate(tri_FEM_2, 'ra0.1')#Refinement 2
+    tri_FEM_4 = triangle.triangulate(tri_FEM_3, 'ra0.05')#Refinement 3
+    tri_FEM_5 = triangle.triangulate(tri_FEM_4, 'ra0.02')#Refinement 4
     del tri_dict
     del tri_FEM#Triangulation takes up a lot of memory, so delete the unrefined triangulation object
-    return tri_FEM_R
+    del tri_FEM_2
+    del tri_FEM_3
+    del tri_FEM_4
+    return tri_FEM_5
 
 def generateFEM():
     """
@@ -189,11 +229,8 @@ def generateFEM():
     lr_outer = np.concatenate((o_1, o_2, o_3, o_4, o_5, o_6, o_7, o_8, o_9, o_10))
     br = np.concatenate((bath1, bath2, bath3, bath4))
     ovr_bdy = np.concatenate((D_lower, D_right, D_upper, D_left))
-    enforceable_gp = np.concatenate((lr_inner, lr_outer, br, np.array([[0.5, 1.0]]), ovr_bdy))#Include source term as a grid point
-    ax = plt.axes()
+    enforceable_gp = np.concatenate((lr_inner, lr_outer, br, ovr_bdy))
     t_FEM = triangulationFEM(enforceable_gp)
-    triangle.plot(ax, **t_FEM)
-    plt.show()
     return t_FEM, lr_inner, lr_outer, br, ovr_bdy
 
 def calcPermitivitty(gp, lr_inner, lr_outer, br, ovr_b):
@@ -292,9 +329,11 @@ def extractTriangleCoefs(linear_poly):
     c_j_i = linear_poly[2]
     return a_j_i,b_j_i,c_j_i
 
-def calcTriangleIntegrals(linear_polynomials, tri_bois, grid_points, eps_r_arr, omega):
+def calcZIntegrals(linear_polynomials, tri_bois, grid_points, eps_r_arr, omega):
     """
     Function to calculate the integrals over each triangle to generate the matrix in the finite element method
+    to generate the M + H matrix for the elliptic finite element method as described by Ch. 8 of Reddy, which 
+    is labeled Z to remain consistent with the notation used in Section 12.5 of Burden and Faires
 
     Parameters: 
     linear_polynomials: N x 3 x 3 Numpy array of linear polynomials at each node of the finite element grid
@@ -305,12 +344,10 @@ def calcTriangleIntegrals(linear_polynomials, tri_bois, grid_points, eps_r_arr, 
 
 
     Return:
-    z_arr: N x 3 x 3 Numpy array of double integrals
-    H_arr: N x 3 Numpy array of double integrals involving inhomogeneous term
+    Z_arr: N x 3 x 3 Numpy array of double integrals
     """
     N = linear_polynomials.shape[0]
-    z_arr = np.zeros((N,3,3))
-    H_arr = np.zeros((N,3))
+    Z_arr = np.zeros((N,3,3))
     for i in np.arange(N):
         x_0,y_0,x_1,y_1,x_2,y_2 = extractVertexCoordinates(tri_bois[i], grid_points)
         x_coords = np.array([x_0, x_1, x_2])
@@ -326,18 +363,55 @@ def calcTriangleIntegrals(linear_polynomials, tri_bois, grid_points, eps_r_arr, 
                 eps_r_V0 = eps_r_arr[tri_bois[i][0]]
                 eps_r_V1 = eps_r_arr[tri_bois[i][1]]
                 eps_r_V2 = eps_r_arr[tri_bois[i][2]]
-                if (eps_r_V0 == 2.7 and (eps_r_V1 == 2.7 or eps_r_V2 == 2.7)) or (eps_r_V1 == 2.7 and eps_r_V2 == 2.7):#Triangles have eps_r=2.7 if they have at least two vertices on or inside a wall
+                if eps_r_V0 == 2.7 and eps_r_V1 == 2.7 and eps_r_V2 == 2.7:#Triangles have eps_r=2.7 if they have all 3 vertices on or inside a wall
                     eps_r = 2.7
                 e_0 = 8.8541878176e-12
                 u_0 = 12.5663706144e-7
                 k_sq = (omega**2)*eps_r*e_0*u_0
                 double_int_z = evaluateZInt(x_coords, y_coords, t_j_coefs, t_k_coefs)
-                z_arr[i][j][k] = (b_j_i*b_k_i*Area_triangle) + (c_j_i*c_k_i*Area_triangle) - (k_sq*double_int_z)
-            double_integral_H = 0
-            if (np.sqrt((x_0 - 0.5)**2 + (y_0 - 1.0)**2) < 1e-12) or (np.sqrt((x_1 - 0.5)**2 + (y_1 - 1.0)**2) < 1e-12) or (np.sqrt((x_2 - 0.5)**2 + (y_2 - 1.0)**2) < 1e-12):#Model source term as point charge
-                double_integral_H = evaluateHInt(x_coords, y_coords, t_j_coefs)
-            H_arr[i][j] = -1.0*double_integral_H
-    return z_arr, H_arr
+                Z_arr[i][j][k] = (b_j_i*b_k_i*Area_triangle) + (c_j_i*c_k_i*Area_triangle) - (k_sq*double_int_z)
+    return Z_arr
+
+def calcHIntegrals(linear_polynomials, tri_bois, grid_points, eps_r_arr, omega):
+    """
+    Function to calculate the integrals over each triangle to generate the matrix in the finite element method
+    to generate the F vector for the elliptic finite element method as described by Ch. 8 of Reddy, which I
+    have relabled the H vector to reflect the notation of Section 12.5 of Burden and Faires
+
+    Parameters: 
+    linear_polynomials: N x 3 x 3 Numpy array of linear polynomials at each node of the finite element grid
+    tri_bois: N x 6 Numpy array representing the xy-coordinates of the verticies of each triangular element
+    grid_points: N x 2 Numpy array of grid points
+    eps_r_arr: Numpy array of length N that holds the value of the relative electrical permitivitty coefficient at each node 
+    omega: Angular frequency
+
+    Return:
+    H_arr_x: N x 3 Numpy array of double integrals over triangles involving x-component of source function
+    H_arr_y: N x 3 Numpy array of double integrals over triangles involving y-component of source function
+    """
+    N = linear_polynomials.shape[0]
+    H_arr_x = np.zeros((N,3), dtype=complex)
+    H_arr_y = np.zeros((N,3), dtype=complex)
+    for i in np.arange(N):
+        x_0,y_0,x_1,y_1,x_2,y_2 = extractVertexCoordinates(tri_bois[i], grid_points)
+        x_coords = np.array([x_0, x_1, x_2])
+        y_coords = np.array([y_0, y_1, y_2])
+        Area_triangle = 0.5*np.linalg.det(np.array([[x_0,y_0,1],[x_1,y_1,1],[x_2,y_2,1]]))
+        for j in np.arange(3):
+            a_j_i,b_j_i,c_j_i = extractTriangleCoefs(linear_polynomials[i][j])
+            t_j_coefs = np.array([a_j_i, b_j_i, c_j_i])
+            eps_r = 1.0
+            eps_r_V0 = eps_r_arr[tri_bois[i][0]]
+            eps_r_V1 = eps_r_arr[tri_bois[i][1]]
+            eps_r_V2 = eps_r_arr[tri_bois[i][2]]
+            if eps_r_V0 == 2.7 and eps_r_V1 == 2.7 and eps_r_V2 == 2.7:#Triangles have eps_r=2.7 if they have all three vertices on or inside a wall
+                eps_r = 2.7
+            e_0 = 8.8541878176e-12
+            u_0 = 12.5663706144e-7
+            wv_k = omega*eps_r*e_0*u_0
+            H_arr_x[i][j] = -1.0*evaluateHInt(x_coords, y_coords, t_j_coefs, 'x', wv_k)
+            H_arr_y[i][j] = -1.0*evaluateHInt(x_coords, y_coords, t_j_coefs, 'y', wv_k)
+    return H_arr_x, H_arr_y
 
 def solveFEMSystemElectric(z_arr, H_arr, tri_bois, grid_points, node_markers):
     """
@@ -362,7 +436,7 @@ def solveFEMSystemElectric(z_arr, H_arr, tri_bois, grid_points, node_markers):
     i_A = []
     j_A = []
     V_A = []
-    b = np.zeros(M)
+    b = np.zeros(M, dtype=complex)
 
     #Assemble integrals over interior triangular elements into linear system
     for i in np.arange(N):
@@ -397,25 +471,30 @@ def solveFEMSystemElectric(z_arr, H_arr, tri_bois, grid_points, node_markers):
     print("End solve electric system")
     return x_E
 
-def graphFEMSol(grid_points, tri_bois, E_coefs_24, E_coefs_5, eps_arr, linear_poly):
+def graphFEMSol(grid_points, tri_bois, E_coefs_24_x, E_coefs_24_y, E_coefs_5_x, E_coefs_5_y, eps_arr, linear_poly, house_grid):
     """
     Function to generate a 3D plot of the solution obtained using the finite element method
 
     Parameters:
     grid_points: M x 2 representing xy-coordinates of grid points/nodes
     tri_bois: N x 3 numpy array of node indices of the three vertices of each triangle 
-    E_coefs_24: Numpy array of length M of node coefficients that solve the FEM equations for the electric field at 2.4GHz
-    E_coefs_5: Numpy array of length M of node coefficients that solve the FEM equations for the electric field at 5.0GHz
+    E_coefs_24_x: Numpy array of length M of node coefficients that solve the FEM equations for the electric field at 2.4GHz for x-component
+    E_coefs_24_y: Numpy array of length M of node coefficients that solve the FEM equations for the electric field at 2.4GHz for y-component
+    E_coefs_5_x: Numpy array of length M of node coefficients that solve the FEM equations for the electric field at 5.0GHz for x-component
+    E_coefs_5_y: Numpy array of length M of node coefficients that solve the FEM equations for the electric field at 5.0GHz for y-component
     eps_arr: Numpy array of length n that holds the values of the electric permitivitty coefficient(e_r*e_0) at each node
     linear_poly: N x 3 x 3 Numpy array of two-variable linear polynomial coefficients
+    house_grid: K x 2 Numpy array of points that form the boundary of the house and its walls
     """
     print("Graphing started")
     #Generate and plot numerical values of solution at the centroid of each triangle
     N = grid_points.shape[0]
     x_vals = np.zeros(N)
     y_vals = np.zeros(N)
-    E_phasor_24 = np.zeros(N)
-    E_phasor_5 = np.zeros(N)
+    E_phasor_24_x = np.zeros(N, dtype=complex)
+    E_phasor_24_y = np.zeros(N, dtype=complex)
+    E_phasor_5_x = np.zeros(N, dtype=complex)
+    E_phasor_5_y = np.zeros(N, dtype=complex)
     for ii in np.arange(N):
         x_0,y_0,x_1,y_1,x_2,y_2 = extractVertexCoordinates(tri_bois[ii], grid_points)
         #Calculate centroid
@@ -424,24 +503,33 @@ def graphFEMSol(grid_points, tri_bois, E_coefs_24, E_coefs_5, eps_arr, linear_po
         centroid_y = (y_0 + y_1 + y_2)/3.0
         y_vals[ii] = centroid_y
         for jj in np.arange(3):
-            E_phasor_24[ii] = E_phasor_24[ii] + E_coefs_24[tri_bois[ii][jj]]*(linear_poly[ii][jj][0] + linear_poly[ii][jj][1]*centroid_x + linear_poly[ii][jj][2]*centroid_y)
-            E_phasor_5[ii] = E_phasor_5[ii] + E_coefs_5[tri_bois[ii][jj]]*(linear_poly[ii][jj][0] + linear_poly[ii][jj][1]*centroid_x + linear_poly[ii][jj][2]*centroid_y)
+            E_phasor_24_x[ii] = E_phasor_24_x[ii] + E_coefs_24_x[tri_bois[ii][jj]]*(linear_poly[ii][jj][0] + linear_poly[ii][jj][1]*centroid_x + linear_poly[ii][jj][2]*centroid_y)
+            E_phasor_24_y[ii] = E_phasor_24_y[ii] + E_coefs_24_y[tri_bois[ii][jj]]*(linear_poly[ii][jj][0] + linear_poly[ii][jj][1]*centroid_x + linear_poly[ii][jj][2]*centroid_y)
+            E_phasor_5_x[ii] = E_phasor_5_x[ii] + E_coefs_5_x[tri_bois[ii][jj]]*(linear_poly[ii][jj][0] + linear_poly[ii][jj][1]*centroid_x + linear_poly[ii][jj][2]*centroid_y)
+            E_phasor_5_y[ii] = E_phasor_5_y[ii] + E_coefs_5_y[tri_bois[ii][jj]]*(linear_poly[ii][jj][0] + linear_poly[ii][jj][1]*centroid_x + linear_poly[ii][jj][2]*centroid_y)
     u_0 = 12.5663706144e-7
 
+    E_phasor_x = E_phasor_24_x + E_phasor_5_x#Add vectors componentwise
+    E_phasor_y = E_phasor_24_y + E_phasor_5_y
+    del E_phasor_24_x
+    del E_phasor_24_y
+    del E_phasor_5_x
+    del E_phasor_5_y
+
     #Power density
-    power_density = np.power(E_phasor_24 + E_phasor_5,2)/(2.0*np.sqrt(u_0/eps_arr)) 
-    del E_phasor_24
-    del E_phasor_5
-    xi = np.linspace(-3.1, 16.1, 1000)
-    yi = np.linspace(-3.1, 10.5, 1000)
+    power_density = np.power(np.real(np.multiply(E_phasor_x,np.conjugate(E_phasor_x))) + np.real(np.multiply(E_phasor_y,np.conjugate(E_phasor_y))), 2)/(2.0*np.sqrt(u_0/eps_arr)) 
+    del E_phasor_x
+    del E_phasor_y
+    xi = np.linspace(-3.1, 16.1, 1250)
+    yi = np.linspace(-3.1, 10.5, 1250)
     X,Y = np.meshgrid(xi,yi)
     Z = griddata((x_vals, y_vals), power_density, (X, Y), method='linear')
     # contour the gridded power density data, plotting dots at the nonuniform data points.
     fig, ax = plt.subplots()
     cs = ax.contourf(X, Y, Z, locator=ticker.LogLocator(), cmap = 'PuBu_r')#Plot interpolated power density data
     cbar = fig.colorbar(cs)
-    ax.scatter(grid_points[:,0],grid_points[:,1], marker='x', linewidths=1, c='g')#Plot grid points for reference
-    ax.set_title("Superimposed WiFi Power Density (Gray is High, Blue is Low)")
+    ax.scatter(house_grid[:,0], house_grid[:,1], marker='+', linewidths=1, c='k')#Plot grid points for reference
+    ax.set_title("Superimposed Phasor Domian Average WiFi Power Density (Gray is High, Blue is Low)")
     plt.show()
 
 def main():
@@ -449,8 +537,10 @@ def main():
     #Parameters not dependent on omega or alpha
     PI = np.pi
     t_FEM1, lr_inner, lr_outer, br, ovr_boundary = generateFEM()
+    hg = np.concatenate((lr_inner, lr_outer, br))
     FEM_triangles = np.array(t_FEM1['triangles'].tolist())
     nodes = np.array(t_FEM1['vertices'].tolist())
+    print(len(nodes))
     node_markers = np.array(t_FEM1['vertex_markers'].tolist()).flatten()#Marker is 1 if node is on the boundary, 0 otherwise
     eps_r_arr = calcPermitivitty(nodes, lr_inner, lr_outer, br, ovr_boundary)#Calculate permitivitty at each node
     linear_polynomials = generateLinearPolynomials(FEM_triangles, nodes, node_markers)#Calculate linear polynomials
@@ -458,18 +548,22 @@ def main():
     #Solve using FEM aout each frequency spike, then combine the two solutions using superposition - this is a linear PDE with linear BCs
     #Solve at 2.4GHz
     omega_24 = 2*PI*2.4e9
-    z_arr_24, H_arr_24 = calcTriangleIntegrals(linear_polynomials, FEM_triangles, nodes, eps_r_arr, omega_24)#Calculate triangle integrals
-    E_coefs_24 = solveFEMSystemElectric(z_arr_24, H_arr_24, FEM_triangles, nodes, node_markers)#Solve for electric field coefficients
+    z_arr_24 = calcZIntegrals(linear_polynomials, FEM_triangles, nodes, eps_r_arr, omega_24)#Calculate Z integrals at 2.4GHz
+    H_arr_24_x, H_arr_24_y = calcHIntegrals(linear_polynomials, FEM_triangles, nodes, eps_r_arr, omega_24)#Calculate H integrals at 2.4GHz
+    E_coefs_24_x = solveFEMSystemElectric(z_arr_24, H_arr_24_x, FEM_triangles, nodes, node_markers)#Solve for electric field coefficients for x component
+    E_coefs_24_y = solveFEMSystemElectric(z_arr_24, H_arr_24_y, FEM_triangles, nodes, node_markers)#Solve for electric field coefficients for y component
 
     #Solve at 5.0GHz
     omega_5 = 2*PI*5.0e9
-    z_arr_5, H_arr_5 = calcTriangleIntegrals(linear_polynomials, FEM_triangles, nodes, eps_r_arr, omega_5)#Calculate triangle integrals
-    E_coefs_5 = solveFEMSystemElectric(z_arr_5, H_arr_5, FEM_triangles, nodes, node_markers)#Solve for electric field coefficients
+    z_arr_5 = calcZIntegrals(linear_polynomials, FEM_triangles, nodes, eps_r_arr, omega_5)#Calculate Z integrals at 5 GHz
+    H_arr_5_x, H_arr_5_y = calcHIntegrals(linear_polynomials, FEM_triangles, nodes, eps_r_arr, omega_5)#Calculate H integrals at 5 GHz
+    E_coefs_5_x = solveFEMSystemElectric(z_arr_5, H_arr_5_x, FEM_triangles, nodes, node_markers)#Solve for electric field coefficients
+    E_coefs_5_y = solveFEMSystemElectric(z_arr_5, H_arr_5_y, FEM_triangles, nodes, node_markers)#Solve for electric field coefficients
 
     #Plor Results of Simulation
     e_0 = 8.8541878176e-12
     eps_arr = e_0*eps_r_arr
-    graphFEMSol(nodes, FEM_triangles, E_coefs_24, E_coefs_5, eps_arr, linear_polynomials)#Graph the solution
+    graphFEMSol(nodes, FEM_triangles, E_coefs_24_x, E_coefs_24_y, E_coefs_5_x, E_coefs_5_y, eps_arr, linear_polynomials, hg)#Graph the solution
 
 if __name__ == "__main__":
     main()
