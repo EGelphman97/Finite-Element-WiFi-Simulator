@@ -8,7 +8,7 @@ using the linear finite element method. Section 9.4 of Kincaid and Cheney, Secti
 the three main resources consulted in the construction of this program.
 
 February 20, 2020
-v1.6.0
+v1.6.1
 """
 
 import numpy as np
@@ -67,37 +67,50 @@ def evaluateZInt(x_coords, y_coords, tri_coefs_j, tri_coefs_k):
     z_int = h*J2#Approximation of double integral
     return z_int
 
-def evalf(x, y, wv_k, source_component):
+def evalf(x, y, wv_k, source_component, source_type):
     """
-    Function to evaluate the specified component('x' or 'y') of the vector-valued source function f(x,y)
-    with wave number wv_k 
+    Function to evaluate the specified component of the vector-valued source function f(x,y)
+
+    Parameters:
+    x,y: Point (x,y) to evaluate f at
+    wv_k: Wave number
+    sourc
+    e_component: 'x' or 'y' to indicate the vector component
+    source_type: "Circular Wave" or "Dirac Delta"
     """
-    R = np.sqrt((x-1.0)**2 + (y-1.0)**2)
-    phi = 0.0
-    if x != 0.0:
-        phi = np.arctan(y/x)
-    elif x == 0.0:
-        if y == 0.0:
-            phi = 0.0
-        else:
-            phi = np.pi/2.0
-    A = 1.0/np.sqrt(2.0)
-    f_R = 0.0
-    f_theta = 0.0
-    if np.sqrt(x**2 + y**2) < 1.0:
-        f_R = A*(5.0 - (5.0/3.0)*R - R**2 - (4.0/3.0)*(R**3))*np.exp(-1j*wv_k*R)
-        f_theta = 0.5*A*(5.0 - (5.0/3.0)*R - R**2 - (4.0/3.0)*(R**3))*np.exp(-1j*wv_k*R)
-    else:
-        f_R = A*np.exp(-1j*wv_k*R)*(1.0/((wv_k*R)**2) - (1j/((wv_k*R)**3)))
-        f_theta = A*np.exp(-1j*wv_k*R)*((1j/(wv_k*R)) + 1.0/((wv_k*R)**2) - (1j/((wv_k*R)**3)))
     F = 0.0
-    if source_component == 'x':
-        F = np.cos(phi)*f_R + R*np.cos(phi)*f_theta
-    elif source_component == 'y':
-        F = np.sin(phi)*f_R + R*np.sin(phi)*f_theta
-    return F*1.0e-12
+    if source_type == "Circular Wave":
+        R = np.sqrt((x-1.0)**2 + (y-1.0)**2)
+        phi = 0.0
+        if x != 0.0:
+            phi = np.arctan(y/x)
+        elif x == 0.0:
+            if y == 0.0:
+                phi = 0.0
+            else:
+                phi = np.pi/2.0
+        A = 1.0/np.sqrt(2.0)
+        f_R = 0.0
+        f_theta = 0.0
+        if np.sqrt(x**2 + y**2) < 1.0:
+            f_R = A*(5.0 - (5.0/3.0)*R - R**2 - (4.0/3.0)*(R**3))*np.exp(-1j*wv_k*R)
+            f_theta = 0.5*A*(5.0 - (5.0/3.0)*R - R**2 - (4.0/3.0)*(R**3))*np.exp(-1j*wv_k*R)
+        else:
+            f_R = A*np.exp(-1j*wv_k*R)*(1.0/((wv_k*R)**2) - (1j/((wv_k*R)**3)))
+            f_theta = A*np.exp(-1j*wv_k*R)*((1j/(wv_k*R)) + 1.0/((wv_k*R)**2) - (1j/((wv_k*R)**3)))
+        if source_component == 'x':
+            F = np.cos(phi)*f_R + R*np.cos(phi)*f_theta
+        elif source_component == 'y':
+            F = np.sin(phi)*f_R + R*np.sin(phi)*f_theta
+        F = F*1.0e-18
+    else:
+        a = 0.1
+        x_p = x - 1.0
+        y_p = y - 1.0
+        F = (1.0/(a*np.sqrt(np.pi)))*np.exp(-((x_p/a)**2 + (y_p/a)**2))*np.exp(-1j*wv_k*(np.sqrt(x_p**2 + y_p**2)))
+    return F
     
-def evaluateHInt(x_coords, y_coords, coefs_j, source_component, wv_k):
+def evaluateHInt(x_coords, y_coords, coefs_j, source_component, wv_k, source_type):
     """
     Function to evaluate integral over a triangular elements that does involve the source term f
     using Gaussian quadrature
@@ -109,6 +122,7 @@ def evaluateHInt(x_coords, y_coords, coefs_j, source_component, wv_k):
     source_component: 'x' or 'y' to indicate which coomponent of the source function, which is vector valued, 
                        to integrate
     wv_k: wave number
+    source_type: "Circular Wave" or "Dirac Delta"
                         
     Return:
     Approximation to integral involving f over triangle
@@ -140,7 +154,7 @@ def evaluateHInt(x_coords, y_coords, coefs_j, source_component, wv_k):
             v = k*gauss_r[n] + k
             phi = (x_1 - x_0)*u + (x_2 - x_0)*v + x_0
             psi = (y_1 - y_0)*u + (y_2 - y_0)*v + y_0
-            f = J_abs*evalf(phi, psi, wv_k, source_component)*(a_j_i + b_j_i*phi + c_j_i*psi)
+            f = J_abs*evalf(phi, psi, wv_k, source_component, source_type)*(a_j_i + b_j_i*phi + c_j_i*psi)
             J2X = J2X + gauss_c[n]*f
             J2 = J2 + gauss_c[m]*h*J2X
     H_int = h*J2#Approximation of double integral
@@ -154,22 +168,19 @@ def triangulationFEM(gp):
     gp: L x 2 array of xy-coordinates of grid points to be enforced in the triangulation
 
     Return:
-    tri_FEM_R: Delaunay FEM triangulation after 4 refinements
+    tri_FEM_R: Delaunay FEM triangulation after 3 refinements
     """
     grid_dict = {hash((p[0], p[1])): p for p in gp }
     grid_points = np.array(list(grid_dict.values()))
     tri_dict = dict(vertices=grid_points)
     tri_FEM = triangle.triangulate(tri_dict, 'qD')#Initial triangulation
     tri_FEM_2 = triangle.triangulate(tri_FEM, 'ra0.2')#Refinement 1
-    tri_FEM_3 = triangle.triangulate(tri_FEM_2, 'ra0.1')#Refinement 2
-    tri_FEM_4 = triangle.triangulate(tri_FEM_3, 'ra0.05')#Refinement 3
-    tri_FEM_5 = triangle.triangulate(tri_FEM_4, 'ra0.02')#Refinement 4
     del tri_dict
-    del tri_FEM#Triangulation takes up a lot of memory, so delete the unrefined triangulation object
+    del tri_FEM
+    tri_FEM_3 = triangle.triangulate(tri_FEM_2, 'ra0.1')#Refinement 2
     del tri_FEM_2
-    del tri_FEM_3
-    del tri_FEM_4
-    return tri_FEM_5
+    tri_FEM_4 = triangle.triangulate(tri_FEM_3, 'ra0.05')#Refinement 3
+    return tri_FEM_4
 
 def generateFEM():
     """
@@ -372,7 +383,7 @@ def calcZIntegrals(linear_polynomials, tri_bois, grid_points, eps_r_arr, omega):
                 Z_arr[i][j][k] = (b_j_i*b_k_i*Area_triangle) + (c_j_i*c_k_i*Area_triangle) - (k_sq*double_int_z)
     return Z_arr
 
-def calcHIntegrals(linear_polynomials, tri_bois, grid_points, eps_r_arr, omega):
+def calcHIntegrals(linear_polynomials, tri_bois, grid_points, eps_r_arr, omega, source_type):
     """
     Function to calculate the integrals over each triangle to generate the matrix in the finite element method
     to generate the F vector for the elliptic finite element method as described by Ch. 8 of Reddy, which I
@@ -384,6 +395,7 @@ def calcHIntegrals(linear_polynomials, tri_bois, grid_points, eps_r_arr, omega):
     grid_points: N x 2 Numpy array of grid points
     eps_r_arr: Numpy array of length N that holds the value of the relative electrical permitivitty coefficient at each node 
     omega: Angular frequency
+    source_type: "Circular Wave" or "Dirac Delta"
 
     Return:
     H_arr_x: N x 3 Numpy array of double integrals over triangles involving x-component of source function
@@ -409,8 +421,8 @@ def calcHIntegrals(linear_polynomials, tri_bois, grid_points, eps_r_arr, omega):
             e_0 = 8.8541878176e-12
             u_0 = 12.5663706144e-7
             wv_k = omega*eps_r*e_0*u_0
-            H_arr_x[i][j] = -1.0*evaluateHInt(x_coords, y_coords, t_j_coefs, 'x', wv_k)
-            H_arr_y[i][j] = -1.0*evaluateHInt(x_coords, y_coords, t_j_coefs, 'y', wv_k)
+            H_arr_x[i][j] = -1.0*evaluateHInt(x_coords, y_coords, t_j_coefs, 'x', wv_k, source_type)
+            H_arr_y[i][j] = -1.0*evaluateHInt(x_coords, y_coords, t_j_coefs, 'y', wv_k, source_type)
     return H_arr_x, H_arr_y
 
 def solveFEMSystemElectric(z_arr, H_arr, tri_bois, grid_points, node_markers):
@@ -549,14 +561,14 @@ def main():
     #Solve at 2.4GHz
     omega_24 = 2*PI*2.4e9
     z_arr_24 = calcZIntegrals(linear_polynomials, FEM_triangles, nodes, eps_r_arr, omega_24)#Calculate Z integrals at 2.4GHz
-    H_arr_24_x, H_arr_24_y = calcHIntegrals(linear_polynomials, FEM_triangles, nodes, eps_r_arr, omega_24)#Calculate H integrals at 2.4GHz
+    H_arr_24_x, H_arr_24_y = calcHIntegrals(linear_polynomials, FEM_triangles, nodes, eps_r_arr, omega_24, "Dirac Delta")#Calculate H integrals at 2.4GHz
     E_coefs_24_x = solveFEMSystemElectric(z_arr_24, H_arr_24_x, FEM_triangles, nodes, node_markers)#Solve for electric field coefficients for x component
     E_coefs_24_y = solveFEMSystemElectric(z_arr_24, H_arr_24_y, FEM_triangles, nodes, node_markers)#Solve for electric field coefficients for y component
 
     #Solve at 5.0GHz
     omega_5 = 2*PI*5.0e9
     z_arr_5 = calcZIntegrals(linear_polynomials, FEM_triangles, nodes, eps_r_arr, omega_5)#Calculate Z integrals at 5 GHz
-    H_arr_5_x, H_arr_5_y = calcHIntegrals(linear_polynomials, FEM_triangles, nodes, eps_r_arr, omega_5)#Calculate H integrals at 5 GHz
+    H_arr_5_x, H_arr_5_y = calcHIntegrals(linear_polynomials, FEM_triangles, nodes, eps_r_arr, omega_5, "Dirac Delta")#Calculate H integrals at 5 GHz
     E_coefs_5_x = solveFEMSystemElectric(z_arr_5, H_arr_5_x, FEM_triangles, nodes, node_markers)#Solve for electric field coefficients
     E_coefs_5_y = solveFEMSystemElectric(z_arr_5, H_arr_5_y, FEM_triangles, nodes, node_markers)#Solve for electric field coefficients
 
