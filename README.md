@@ -1,10 +1,11 @@
 # Finite-Element-WiFi-Simulator
 ssWFS is a Python program that calculates the steady-state power density of the wifi signal over the downstairs of 
-my house. The program solves the inhomogeneous Helmholtz equation with point source and with natural boundary
-conditions using the finite element method. ssWFS then generates a filled contour plot of the power density. 
-The script is configured for automatic documentation generation using Python's built-in command line tools. 
+my house. The program solves the inhomogeneous two-dimensional vector Helmholtz equation with natural boundary conditions 
+using the finite element method. Both circular wave and approximate Dirac Delta function sources are modeled. ssWFS then 
+generates a filled contour plot of the power density. The script is configured for automatic documentation generation using
+Python's built-in command line tools. 
 
-To run the script, simply enter 
+To run ssWFS, simply enter 
 
 $ python ssWFS.py
 
@@ -17,10 +18,10 @@ Matplotlib
 Triangle: https://rufat.be/triangle/
 Shapely: https://pypi.org/project/Shapely/
 
-TDGS.py is a Python program that calculates the relative instantaneous power density of the WiFi signal over the downstairs
-of my house. The program solves the inhomogeneous wave equation with point time dependent source with harmonics at 
-2.4 and 5.0 GHz with natural boundary conditions. TDGS is a 2D finite element version of the 3D finite difference time domain
-(FDTD) method commonly used in computational electromagnetics. To run this program, simply enter into the command line
+TDGS.py is a Python program still in beta that calculates the relative instantaneous power density of the WiFi signal over 
+the downstairs of my house. The program solves the inhomogeneous wave equation with point time dependent source with harmonics 
+at 2.4 and 5.0 GHz with natural boundary conditions. TDGS is a 2D finite element version of the 3D finite difference time domain
+(FDTD) method commonly used in computational electromagnetics. To run TDGS program, simply enter into the command line
 
 $ python TDGS.py
 
