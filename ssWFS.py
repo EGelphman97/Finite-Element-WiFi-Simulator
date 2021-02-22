@@ -2,13 +2,13 @@
 Eric Gelphman
 University of California Irvine Department of Mathematics
 
-Program using various Python packages to calculate the steady-state power density of WiFi in my house. This is accomplished by solving 
+Program using Numpy and SciPy to calculate the steady-state power density of WiFi in my house. This is accomplished by solving 
 the two dimensional vector linear Helmholtz equation in the phasor domain with circular wave source term with natural boundary conditions 
 using the linear finite element method. Section 9.4 of Kincaid and Cheney, Section 12.5 of Burden and Faires, and Chapter 8 of Reddy were 
 the three main resources consulted in the construction of this program.
 
-February 20, 2020
-v1.6.1
+February 22, 2020
+v1.6.5
 """
 
 import numpy as np
@@ -18,54 +18,37 @@ from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import spsolve
 import matplotlib.pyplot as plt
 from matplotlib import ticker
-from shapely.geometry import Point, Polygon
 
-def evaluateZInt(x_coords, y_coords, tri_coefs_j, tri_coefs_k):
+def pointInPolygon(x,y,poly):
     """
-    Function to evaluate integral over a triangular elements that does not involve the source term f
-    using Gaussian quadrature
+    Function to determine if the point (x,y) lies inside the closed polygon poly, not including the boundary
 
     Parameters:
-    x_coords: Length 3 numpy array pf x-coordinates [x_0, x_1, x_2] of verticies of triangle
-    y_coords: Length 3 numpy array of y-coordinates [y_0, y_1, y_2] of verticies of triangle
-    tri_coefs_j: Length 3 numpy array of triangle coefficents [a_j, b_j, c_j]
-    tri_coefs_k: Length 3 numpy array of triangle coefficents [a_k, b_k, c_k]
+    x,y: xy-coordinates of point
+    poly: K x 2 Numpy array of points (x,y) that form boundary of polygon, ordered clockwise or counterclockwise
+
+    Return:
+    True if (x,y) is inside poly, False otherwise
     """
-    x_0 = x_coords[0]
-    x_1 = x_coords[1]
-    x_2 = x_coords[2]
-    y_0 = y_coords[0]
-    y_1 = y_coords[1]
-    y_2 = y_coords[2]
-    a_j_i = tri_coefs_j[0]
-    b_j_i = tri_coefs_j[1]
-    c_j_i = tri_coefs_j[2]
-    a_k_i = tri_coefs_k[0]
-    b_k_i = tri_coefs_k[1]
-    c_k_i = tri_coefs_k[2]
-    gauss_c = np.array([0.3626837833783620,0.3626837833783620,0.3137066458778873,0.3137066458778873,0.2223810344533745,0.2223810344533745,0.1012285362903763,0.1012285362903763])
-    gauss_r = np.array([-0.1834346424956498,0.1834346424956498,-0.5255324099163290,0.5255324099163290,-0.7966664774136267,0.7966664774136267,-0.9602898564975363,0.9602898564975363])
-    #Change coordinates so double integral is over the triangle with verticies (0,0),(1,0),(0,1)
-    J_abs = np.abs((x_1 - x_0)*(y_2 - y_0) - (x_2 - x_0)*(y_1 - y_0))#Absolute value of determinant of Jacobian matrix
-    #Apply two-variable Gaussian quadrature, this involves another change of variables-multiply Jacobians
-    h = 0.5
-    J2 = 0.0
-    for m in np.arange(len(gauss_r)):
-        u = h*gauss_r[m] + h
-        d = 1.0 - u
-        k = d/2.0
-        J2X = 0.0
-        for n in np.arange(len(gauss_r)):
-            v = k*gauss_r[n] + k
-            phi = (x_1 - x_0)*u + (x_2 - x_0)*v + x_0
-            psi = (y_1 - y_0)*u + (y_2 - y_0)*v + y_0
-            val = (a_j_i*a_k_i) + (a_j_i*b_k_i + a_k_i*b_j_i)*phi + (a_j_i*c_k_i + a_k_i*c_j_i)*psi
-            val = val + (b_j_i*b_k_i)*np.power(phi,2) + (b_j_i*c_k_i + c_j_i*b_k_i)*phi*psi + (c_j_i*c_k_i)*np.power(psi,2)
-            val = J_abs*val#Jacobian is a constant, as the derivatives are of linear functions
-            J2X = J2X + gauss_c[n]*val
-            J2 = J2 + gauss_c[m]*h*J2X
-    z_int = h*J2#Approximation of double integral
-    return z_int
+    n = len(poly)
+    inside = False
+    p2x = 0.0
+    p2y = 0.0
+    xints = 0.0
+    p1x = poly[0][0]
+    p1y = poly[0][1]
+    for i in np.arange(n+1):
+        p2x = poly[i % n][0]
+        p2y = poly[i % n][1]
+        if y > min(p1y,p2y):
+            if y <= max(p1y,p2y):
+                if x <= max(p1x,p2x):
+                    if p1y != p2y:
+                        xints = (y-p1y)*(p2x-p1x)/(p2y-p1y)+p1x
+                    if p1x == p2x or x <= xints:
+                        inside = not inside
+        p1x,p1y = p2x,p2y
+    return inside
 
 def evalf(x, y, wv_k, source_component, source_type):
     """
@@ -102,12 +85,30 @@ def evalf(x, y, wv_k, source_component, source_type):
             F = np.cos(phi)*f_R + R*np.cos(phi)*f_theta
         elif source_component == 'y':
             F = np.sin(phi)*f_R + R*np.sin(phi)*f_theta
-        F = F*1.0e-18
+        F = F*1.0e-15
     else:
         a = 0.1
         x_p = x - 1.0
         y_p = y - 1.0
         F = (1.0/(a*np.sqrt(np.pi)))*np.exp(-((x_p/a)**2 + (y_p/a)**2))*np.exp(-1j*wv_k*(np.sqrt(x_p**2 + y_p**2)))
+    #Adjust magnitude of F based on location, approximately 80% of the energy of the source will be lost due to collisions with a wall
+    lv_kitchen = np.array([[0.0,0.3],[3.6,0.3],[3.6,4.3],[6.1,4.3],[6.1,5.6],[9.1,5.6],[9.1,7.3],[3.6,7.3],[3.6,5.8],[0.0,5.8]])
+    hall_2_Eric_room = np.array([[6.9,2.3],[9.6,2.3],[9.6,0.0],[12.9,0.0],[12.9,3.3],[6.9,3.3]])
+    stairs = np.array([[6.88,-0.02],[9.62,-0.02],[9.62,2.32],[6.88,2.32]])
+    outer_house_boundary = np.array([[0.0,0.3],[3.6,0.3],[3.6,0.0],[12.9,0.0],[12.9,7.3],[3.6,7.3],[3.6,5.8],[0.0,5.8]] )
+    if pointInPolygon(x, y, outer_house_boundary) == True:
+        if(pointInPolygon(x, y, lv_kitchen) == False):
+            if pointInPolygon(x, y, hall_2_Eric_room) == True:
+                F = F*0.7
+            elif pointInPolygon(x, y, stairs) == True:
+                F = F*0.61
+            else:
+                F = F*0.81
+    else:
+        if(y >= 9.6):
+            F = F*0.6
+        else:
+            F = F*0.8
     return F
     
 def evaluateHInt(x_coords, y_coords, coefs_j, source_component, wv_k, source_type):
@@ -240,7 +241,7 @@ def generateFEM():
     lr_outer = np.concatenate((o_1, o_2, o_3, o_4, o_5, o_6, o_7, o_8, o_9, o_10))
     br = np.concatenate((bath1, bath2, bath3, bath4))
     ovr_bdy = np.concatenate((D_lower, D_right, D_upper, D_left))
-    enforceable_gp = np.concatenate((lr_inner, lr_outer, br, ovr_bdy))
+    enforceable_gp = np.concatenate((lr_inner, lr_outer, br, np.array([[3.75*np.ones(20), np.linspace(0.15,4.15,num=20)]]).reshape((2,-1)).T, np.array([[np.linspace(3.9,6.15,num=10),3.8*np.ones(10)]]).reshape((2,-1)).T, ovr_bdy))
     t_FEM = triangulationFEM(enforceable_gp)
     return t_FEM, lr_inner, lr_outer, br, ovr_bdy
 
@@ -249,35 +250,27 @@ def calcPermitivitty(gp, lr_inner, lr_outer, br, ovr_b):
     Function to calculate the relative electric permitivitty coefficient at each grid point
 
     Parameters:
-    gp: N x 2 Numpy array of xy-coordinates of grid points
+    gp: M x 2 Numpy array of xy-coordinates of grid points
     lr_inner, lr_outer, br, ovr_bdy: Numpy arrays of points that make up inner boundary of living room, outer boundary of living room, boundary of bathroom,
                                      and overall boundary of simulation region, respectively
 
     Return: Array eps_r of permitivitty coefficients at each point in gp. gp[i] corresponds to eps_r[i]
     """
-    N = gp.shape[0]
-    p_inner = [Point(g[0],g[1]) for g in lr_inner]
-    lr_inner_bdy = Polygon([(p.x,p.y) for p in p_inner])
-    p_outer = [Point(g[0],g[1]) for g in lr_outer]
-    lr_outer_bdy = Polygon([(p.x,p.y) for p in p_outer])
-    p_b = [Point(g[0],g[1]) for g in br]
-    b_bdy = Polygon([(p.x,p.y) for p in p_b])
-    p_ovr = [Point(g[0],g[1]) for g in ovr_b]
-    ovr_bdy = Polygon([(p.x,p.y) for p in p_ovr])
-    eps_r = np.zeros(N)
-    for ii in np.arange(N):
-        p = Point(gp[ii][0], gp[ii][1])
-        if lr_inner_bdy.contains(p) or b_bdy.contains(p):
+    M = gp.shape[0]
+    eps_r = np.zeros(M)
+    for ii in np.arange(M):
+        p_x = gp[ii][0]
+        p_y = gp[ii][1]
+        if pointInPolygon(p_x, p_y, lr_inner) or pointInPolygon(p_x, p_y, br):
             eps_r[ii] = 1.0#Point is in the interior of the house
         elif gp[ii][0] == -3.1 or gp[ii][0] == 16.1 or gp[ii][1] == -3.1 or gp[ii][1] == 10.5:
             eps_r[ii] = 1.0#Point is on boundary of simulation region
-        elif ovr_bdy.contains(p) == True and lr_outer_bdy.contains(p) == False:
+        elif pointInPolygon(p_x, p_y, ovr_b) == True and pointInPolygon(p_x, p_y, lr_outer) == False:
             eps_r[ii] = 1.0#Point is inside simulation region but outside the house
         else:#Point is on or inside a wall
             eps_r[ii] = 2.7
     return eps_r
     
-
 def extractVertexCoordinates(tri_boi, grid_points):
     """
     Finds the xy-coordinates of the verticies, given as a length 3 array of node indices, in the
@@ -353,7 +346,6 @@ def calcZIntegrals(linear_polynomials, tri_bois, grid_points, eps_r_arr, omega):
     eps_r_arr: Numpy array of length N that holds the value of the relative electrical permitivitty coefficient at each node 
     omega: Angular frequency
 
-
     Return:
     Z_arr: N x 3 x 3 Numpy array of double integrals
     """
@@ -379,8 +371,13 @@ def calcZIntegrals(linear_polynomials, tri_bois, grid_points, eps_r_arr, omega):
                 e_0 = 8.8541878176e-12
                 u_0 = 12.5663706144e-7
                 k_sq = (omega**2)*eps_r*e_0*u_0
-                double_int_z = evaluateZInt(x_coords, y_coords, t_j_coefs, t_k_coefs)
-                Z_arr[i][j][k] = (b_j_i*b_k_i*Area_triangle) + (c_j_i*c_k_i*Area_triangle) - (k_sq*double_int_z)
+                x_hat = (x_0 + x_1 + x_2)/3.0
+                y_hat = (y_0 + y_1 + y_2)/3.0
+                I_20 = (Area_triangle/12.0)*(x_0**2 + x_1**2 + x_2**2 + 9.0*(x_hat**2))
+                I_02 = (Area_triangle/12.0)*(y_0**2 + y_1**2 + y_2**2 + 9.0*(y_hat**2))
+                I_11 = (Area_triangle/12.0)*(x_0*y_0 + x_1*y_1 + x_2*x_2 + 9.0*x_hat*y_hat)
+                S_00 = a_j_i*a_k_i + (a_j_i*b_k_i + a_k_i*b_j_i)*x_hat + (a_j_i*c_k_i + a_k_i*c_j_i)*y_hat + (1.0/Area_triangle)*(I_20*b_j_i*b_k_i + I_11*(b_j_i*c_k_i + b_k_i*c_j_i) + I_02*c_j_i*c_k_i)
+                Z_arr[i][j][k] = (b_j_i*b_k_i*Area_triangle) + (c_j_i*c_k_i*Area_triangle) - (k_sq*S_00)
     return Z_arr
 
 def calcHIntegrals(linear_polynomials, tri_bois, grid_points, eps_r_arr, omega, source_type):
@@ -561,7 +558,7 @@ def main():
     #Solve at 2.4GHz
     omega_24 = 2*PI*2.4e9
     z_arr_24 = calcZIntegrals(linear_polynomials, FEM_triangles, nodes, eps_r_arr, omega_24)#Calculate Z integrals at 2.4GHz
-    H_arr_24_x, H_arr_24_y = calcHIntegrals(linear_polynomials, FEM_triangles, nodes, eps_r_arr, omega_24, "Dirac Delta")#Calculate H integrals at 2.4GHz
+    H_arr_24_x, H_arr_24_y = calcHIntegrals(linear_polynomials, FEM_triangles, nodes, eps_r_arr, omega_24, "Circular Wave")#Calculate H integrals at 2.4GHz
     E_coefs_24_x = solveFEMSystemElectric(z_arr_24, H_arr_24_x, FEM_triangles, nodes, node_markers)#Solve for electric field coefficients for x component
     E_coefs_24_y = solveFEMSystemElectric(z_arr_24, H_arr_24_y, FEM_triangles, nodes, node_markers)#Solve for electric field coefficients for y component
 
